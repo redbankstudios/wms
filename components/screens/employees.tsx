@@ -108,7 +108,7 @@ function EmployeeFormModal({ open, onClose, onSave, initial, saving }: EmployeeF
   if (!open) return null
 
   return (
-    <Dialog open={open} onClose={onClose}>
+    <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
       <div className="p-6 w-full max-w-md">
         <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-5">
           {initial ? "Edit Employee" : "Add Employee"}
@@ -358,7 +358,7 @@ export function EmployeesManagement() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((emp, i) => (
+                {filtered.map((emp) => (
                   <tr
                     key={emp.id}
                     className={`border-b last:border-0 border-slate-50 dark:border-slate-700/50 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/30 ${!emp.active ? "opacity-60" : ""}`}
