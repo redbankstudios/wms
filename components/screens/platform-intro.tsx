@@ -4,6 +4,7 @@ import * as React from "react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { useDemo } from "@/context/DemoContext"
+import { PlatformIntroPricingBlurb } from "@/app/pricing/platform-intro-pricing-blurb"
 import {
   Building2,
   Compass,
@@ -414,6 +415,7 @@ export function PlatformIntro() {
 
   return (
     <div className="space-y-10">
+      <PlatformIntroPricingBlurb variant="compact" />
 
       {/* ── Hero ── */}
       <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
