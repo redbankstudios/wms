@@ -2,7 +2,6 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { PlatformIntroPricingBlurb } from "@/app/pricing/platform-intro-pricing-blurb"
 import {
   ArrowRight,
   BadgeCheck,
@@ -18,6 +17,7 @@ import {
 
 type BillingCycle = "monthly" | "annual"
 type PlanId = "starter" | "growth" | "scale" | "enterprise"
+type RecommendationId = "starter" | "growth" | "scale" | "usage" | "enterprise"
 
 type Plan = {
   id: PlanId
@@ -31,7 +31,9 @@ type Plan = {
 }
 
 const OVERAGE_PER_STOP = 0.08
-const ANNUAL_DISCOUNT_FACTOR = 10 / 12 // "2 months free"
+const USAGE_DELIVERY_STOP_RATE = 0.12
+const USAGE_STORAGE_UNIT_RATE = 0.18
+const ANNUAL_DISCOUNT_FACTOR = 10 / 12 // 2 months free
 
 const plans: Plan[] = [
   {
@@ -126,11 +128,15 @@ const comparisonRows = [
 const faqItems = [
   {
     q: "What counts as a stop?",
-    a: "A stop is a unique delivery destination attempted by a driver. Re-attempts to the same destination in the same run are not counted as additional planned stops unless they are dispatched as separate stop records.",
+    a: "A stop is one delivery destination visited by a driver on a route. A single route with 40 unique destinations equals 40 stops.",
+  },
+  {
+    q: "What is a storage unit in usage-based pricing?",
+    a: "One storage unit equals one pallet position per month. Storage usage is metered and visible in Billing and Usage reporting.",
   },
   {
     q: "Do you charge per warehouse or per user?",
-    a: "Core pricing is subscription plus stop usage. We do not charge by seat in these standard plans; warehouse count and user model can be tailored in Enterprise contracts.",
+    a: "Core pricing is subscription plus stop usage, or usage-based delivery + storage. We do not charge by seat in standard plans.",
   },
   {
     q: "What happens if we go over included stops?",
@@ -156,10 +162,6 @@ const faqItems = [
     q: "Is our data isolated per tenant?",
     a: "Yes. The platform is multi-tenant with strong data isolation controls and row-level security (RLS) patterns.",
   },
-  {
-    q: "Where do we see usage and invoices?",
-    a: "Usage and billing are visible in the billing modules, including storage, pick/pack, and route stop fee breakdowns.",
-  },
 ]
 
 function formatCurrency(value: number) {
@@ -168,6 +170,10 @@ function formatCurrency(value: number) {
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(value)
+}
+
+function scrollToId(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })
 }
 
 function getDisplayedPrice(plan: Plan, billingCycle: BillingCycle) {
@@ -182,11 +188,31 @@ function getAnnualBilled(plan: Plan) {
   return plan.monthlyPrice * 10
 }
 
-function getRecommendedPlan(stops: number): Plan {
-  if (stops <= 5_000) return plans[0]
-  if (stops <= 25_000) return plans[1]
-  if (stops <= 100_000) return plans[2]
-  return plans[3]
+function getEffectiveMonthly(plan: Plan, billingCycle: BillingCycle) {
+  if (plan.monthlyPrice === null) return 0
+  return billingCycle === "monthly"
+    ? plan.monthlyPrice
+    : Math.round(plan.monthlyPrice * ANNUAL_DISCOUNT_FACTOR)
+}
+
+function computePlanTotal(plan: Plan, stops: number, billingCycle: BillingCycle) {
+  if (plan.monthlyPrice === null || plan.includedStops === null) {
+    return {
+      base: 0,
+      overageStops: 0,
+      overage: 0,
+      total: Number.POSITIVE_INFINITY,
+    }
+  }
+  const base = getEffectiveMonthly(plan, billingCycle)
+  const overageStops = Math.max(0, stops - plan.includedStops)
+  const overage = overageStops * OVERAGE_PER_STOP
+  return {
+    base,
+    overageStops,
+    overage,
+    total: base + overage,
+  }
 }
 
 function cellValue(value: boolean | string) {
@@ -195,9 +221,39 @@ function cellValue(value: boolean | string) {
   return <span className="text-xs text-slate-400">-</span>
 }
 
+function PlatformIntroPricingBlurb({ variant = "default" }: { variant?: "compact" | "default" }) {
+  const compact = variant === "compact"
+
+  return (
+    <section className={`rounded-xl border border-slate-200 bg-white ${compact ? "p-4" : "p-5"}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pricing model</p>
+          <h3 className={`mt-1 font-semibold text-slate-900 ${compact ? "text-base" : "text-lg"}`}>Subscription or usage-based</h3>
+        </div>
+        <ShieldCheck className="h-5 w-5 text-slate-400" />
+      </div>
+      <p className={`mt-2 text-slate-600 ${compact ? "text-xs" : "text-sm"}`}>
+        Choose a subscription plan with included stops and predictable monthly pricing, or start on our free platform plan billed by delivery and storage usage.
+        Subscription plans include stop allowances with transparent $0.08 overage per extra stop.
+        Usage-based pricing has a $0 platform fee, with metered charges for stops and storage units.
+        Billing and usage views show the full breakdown so warehouse admins can track cost drivers clearly.
+      </p>
+      <Link
+        href="/pricing"
+        className="mt-3 inline-flex items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+      >
+        View Pricing
+        <ChevronRight className="h-3.5 w-3.5" />
+      </Link>
+    </section>
+  )
+}
+
 function PricingCard({ plan, billingCycle }: { plan: Plan; billingCycle: BillingCycle }) {
   return (
     <article
+      id={`plan-${plan.id}`}
       className={`relative flex h-full flex-col rounded-2xl border bg-white p-6 shadow-sm ${
         plan.popular ? "border-slate-900" : "border-slate-200"
       }`}
@@ -251,44 +307,188 @@ function PricingCard({ plan, billingCycle }: { plan: Plan; billingCycle: Billing
   )
 }
 
-function UsageEstimator({ billingCycle }: { billingCycle: BillingCycle }) {
+function UsageBasedPlanCard() {
+  return (
+    <article id="plan-usage" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Usage-Based Plan</p>
+          <h3 className="mt-1 text-2xl font-semibold text-slate-900">$0 / month platform fee</h3>
+          <p className="mt-2 max-w-2xl text-sm text-slate-600">
+            Free platform access does not mean free operations. Delivery and storage are billed by actual monthly usage.
+          </p>
+        </div>
+        <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">Start free</span>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Delivery usage</p>
+          <p className="mt-1 text-xl font-bold text-slate-900">${USAGE_DELIVERY_STOP_RATE.toFixed(2)} per stop</p>
+          <p className="mt-1 text-xs text-slate-600">A stop is one delivery destination visited by a driver.</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Storage usage</p>
+          <p className="mt-1 text-xl font-bold text-slate-900">${USAGE_STORAGE_UNIT_RATE.toFixed(2)} per storage unit / month</p>
+          <p className="mt-1 text-xs text-slate-600">Storage unit = one pallet position per month.</p>
+        </div>
+      </div>
+
+      <p className="mt-4 text-sm text-slate-700">
+        <strong>Best for:</strong> seasonal volume, new operations, or teams that want to start without a fixed platform fee.
+      </p>
+      <p className="mt-2 text-xs text-slate-500">Metering and charges are visible in Billing and Usage for full cost transparency.</p>
+
+      <div className="mt-5 flex flex-wrap gap-3">
+        <Link
+          href="/contact"
+          className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+        >
+          Book demo
+        </Link>
+        <Link
+          href="/signup"
+          className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+        >
+          Start free
+        </Link>
+      </div>
+    </article>
+  )
+}
+
+function SmartEstimator({ billingCycle }: { billingCycle: BillingCycle }) {
   const [monthlyStops, setMonthlyStops] = React.useState(12000)
-  const [monthlyOrders, setMonthlyOrders] = React.useState(15000)
-  const [includeOverage, setIncludeOverage] = React.useState(true)
+  const [storageUnits, setStorageUnits] = React.useState(3500)
+  const [showDetailedBreakdown, setShowDetailedBreakdown] = React.useState(true)
 
-  const recommendedPlan = React.useMemo(() => getRecommendedPlan(monthlyStops), [monthlyStops])
+  const starterPlan = plans.find((p) => p.id === "starter")!
+  const growthPlan = plans.find((p) => p.id === "growth")!
+  const scalePlan = plans.find((p) => p.id === "scale")!
 
-  const { base, overageStops, overageCost, monthlyTotal, annualTotal } = React.useMemo(() => {
-    if (recommendedPlan.monthlyPrice === null || recommendedPlan.includedStops === null) {
-      return { base: 0, overageStops: 0, overageCost: 0, monthlyTotal: 0, annualTotal: 0 }
+  const starter = React.useMemo(() => computePlanTotal(starterPlan, monthlyStops, billingCycle), [billingCycle, monthlyStops, starterPlan])
+  const growth = React.useMemo(() => computePlanTotal(growthPlan, monthlyStops, billingCycle), [billingCycle, monthlyStops, growthPlan])
+  const scale = React.useMemo(() => computePlanTotal(scalePlan, monthlyStops, billingCycle), [billingCycle, monthlyStops, scalePlan])
+
+  const usageTotal = React.useMemo(
+    () => monthlyStops * USAGE_DELIVERY_STOP_RATE + storageUnits * USAGE_STORAGE_UNIT_RATE,
+    [monthlyStops, storageUnits]
+  )
+
+  const recommendation = React.useMemo(() => {
+    let recommended: RecommendationId = "usage"
+    let reason = "Lowest estimated monthly total based on your inputs"
+    const reasons: string[] = []
+
+    const totals: Record<RecommendationId, number> = {
+      starter: starter.total,
+      growth: growth.total,
+      scale: scale.total,
+      usage: usageTotal,
+      enterprise: Number.POSITIVE_INFINITY,
     }
 
-    const baseMonthly =
-      billingCycle === "monthly"
-        ? recommendedPlan.monthlyPrice
-        : Math.round(recommendedPlan.monthlyPrice * ANNUAL_DISCOUNT_FACTOR)
+    if (monthlyStops > 100_000) {
+      recommended = "scale"
+      reason = "Based on very high stop volume, Scale gives the strongest included capacity before overages"
+      reasons.push("Includes up to 100,000 stops before overages")
+      if (monthlyStops > 130_000) {
+        reasons.push("Your projected volume is high enough to discuss Enterprise pricing")
+      }
+    } else {
+      const lowest = (Object.keys(totals) as RecommendationId[])
+        .filter((id) => id !== "enterprise")
+        .sort((a, b) => totals[a] - totals[b])[0]
+      recommended = lowest
+      reason = "Lowest estimated monthly total based on your inputs"
 
-    const extraStops = Math.max(0, monthlyStops - recommendedPlan.includedStops)
-    const extraCost = includeOverage ? extraStops * OVERAGE_PER_STOP : 0
-    const monthly = baseMonthly + extraCost
+      if (recommended === "usage") {
+        reasons.push("No platform fee; you only pay for delivery + storage usage")
+      }
+      if (recommended === "starter") {
+        reasons.push("Includes up to 5,000 stops before overages")
+      }
+      if (recommended === "growth") {
+        reasons.push("Includes up to 25,000 stops before overages")
+      }
+      if (recommended === "scale") {
+        reasons.push("Includes up to 100,000 stops before overages")
+      }
+    }
 
     return {
-      base: baseMonthly,
-      overageStops: extraStops,
-      overageCost: extraCost,
-      monthlyTotal: monthly,
-      annualTotal: monthly * 12,
+      id: recommended,
+      planName:
+        recommended === "usage"
+          ? "Usage-Based Plan"
+          : `${recommended.charAt(0).toUpperCase()}${recommended.slice(1)} Plan`,
+      reason,
+      reasons,
+      anchor:
+        recommended === "usage"
+          ? "plan-usage"
+          : `plan-${recommended}`,
     }
-  }, [billingCycle, includeOverage, monthlyStops, recommendedPlan])
+  }, [growth.total, monthlyStops, scale.total, starter.total, usageTotal])
+
+  const upgradePrompts = React.useMemo(() => {
+    const prompts: string[] = []
+
+    if (monthlyStops > 5_000) {
+      prompts.push("You're over Starter's included stops. Growth may reduce overage costs.")
+    }
+    if (monthlyStops > 25_000) {
+      prompts.push("You're over Growth's included stops. Scale may reduce overage costs.")
+    }
+    if (monthlyStops > 100_000) {
+      prompts.push("You're over Scale's included stops. Talk to us about Enterprise pricing.")
+    }
+
+    if (usageTotal > growth.total && monthlyStops >= 8_000 && monthlyStops <= 100_000) {
+      prompts.push("At your volume, a subscription plan is likely better value. Recommended: Growth or Scale.")
+    }
+
+    if (monthlyStops >= Math.floor(5_000 * 0.9) && monthlyStops <= 5_000) {
+      prompts.push("You're close to Starter's limit. Consider Growth to reduce overage risk.")
+    }
+    if (monthlyStops >= Math.floor(25_000 * 0.9) && monthlyStops <= 25_000) {
+      prompts.push("You're close to Growth's limit. Consider Scale to keep costs predictable.")
+    }
+    if (monthlyStops >= Math.floor(100_000 * 0.9) && monthlyStops <= 100_000) {
+      prompts.push("You're close to Scale's limit. Consider an Enterprise discussion for upcoming growth.")
+    }
+
+    return prompts.slice(0, 3)
+  }, [growth.total, monthlyStops, usageTotal])
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-6" id="estimator">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight text-slate-900">Usage Estimator</h2>
-          <p className="text-sm text-slate-600">Estimate plan fit and monthly cost from projected stop volume.</p>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900">Smart Estimator</h2>
+          <p className="text-sm text-slate-600">
+            Compare subscription tiers and usage-based pricing. Stop = one delivery destination. Storage unit = one pallet position per month.
+          </p>
         </div>
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">No hidden fees</span>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Transparent metering</span>
+      </div>
+
+      <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+        <p className="text-sm font-semibold text-emerald-900">Recommended: {recommendation.planName}</p>
+        <ul className="mt-2 list-disc pl-5 text-sm text-emerald-800">
+          <li>{recommendation.reason}</li>
+          {recommendation.reasons.map((entry) => (
+            <li key={entry}>{entry}</li>
+          ))}
+        </ul>
+        <button
+          type="button"
+          onClick={() => scrollToId(recommendation.anchor)}
+          className="mt-3 inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+        >
+          See recommended plan
+          <ChevronRight className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
@@ -305,67 +505,93 @@ function UsageEstimator({ billingCycle }: { billingCycle: BillingCycle }) {
             className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
           />
 
-          <label className="block text-sm font-medium text-slate-700" htmlFor="monthlyOrders">
-            Monthly orders (optional context)
+          <label className="block text-sm font-medium text-slate-700" htmlFor="storageUnits">
+            Monthly storage units (pallet positions)
           </label>
           <input
-            id="monthlyOrders"
+            id="storageUnits"
             type="number"
             min={0}
-            value={monthlyOrders}
-            onChange={(e) => setMonthlyOrders(Number(e.target.value || 0))}
+            value={storageUnits}
+            onChange={(e) => setStorageUnits(Number(e.target.value || 0))}
             className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
           />
 
           <label className="inline-flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"
-              checked={includeOverage}
-              onChange={(e) => setIncludeOverage(e.target.checked)}
+              checked={showDetailedBreakdown}
+              onChange={(e) => setShowDetailedBreakdown(e.target.checked)}
               className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400"
             />
-            Include overage estimate
+            Show detailed breakdown
           </label>
+
+          {upgradePrompts.length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-semibold">Upgrade suggestions</p>
+              <ul className="mt-2 list-disc pl-5">
+                {upgradePrompts.map((prompt) => (
+                  <li key={prompt}>{prompt}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recommended tier</p>
-          <p className="mt-1 text-xl font-bold text-slate-900">{recommendedPlan.name}</p>
-          <p className="mt-3 text-sm text-slate-600">Projected monthly orders: {monthlyOrders.toLocaleString()}</p>
-
-          {recommendedPlan.monthlyPrice === null ? (
-            <p className="mt-4 text-sm text-slate-700">Your projected volume is above standard tiers. Contact sales for a custom package.</p>
-          ) : (
-            <div className="mt-4 space-y-2 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600">Subscription ({billingCycle})</span>
-                <span className="font-medium text-slate-900">{formatCurrency(base)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600">Included stops</span>
-                <span className="font-medium text-slate-900">{recommendedPlan.includedStops?.toLocaleString()}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600">Overage stops</span>
-                <span className="font-medium text-slate-900">{overageStops.toLocaleString()}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600">Overage cost @ $0.08</span>
-                <span className="font-medium text-slate-900">{formatCurrency(overageCost)}</span>
-              </div>
-              <div className="mt-3 border-t border-slate-200 pt-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-slate-800">Estimated monthly total</span>
-                  <span className="text-lg font-bold text-slate-900">{formatCurrency(monthlyTotal)}</span>
-                </div>
-                {billingCycle === "annual" && (
-                  <div className="mt-2 flex items-center justify-between">
-                    <span className="font-semibold text-slate-800">Estimated annual total</span>
-                    <span className="text-base font-bold text-slate-900">{formatCurrency(annualTotal)}</span>
-                  </div>
-                )}
-              </div>
+        <div className="space-y-3">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-800">Starter</p>
+              <p className="text-sm font-bold text-slate-900">{formatCurrency(starter.total)}</p>
             </div>
+            {showDetailedBreakdown && (
+              <p className="mt-1 text-xs text-slate-600">
+                Subscription {formatCurrency(starter.base)} + overage {starter.overageStops.toLocaleString()} x $0.08 = {formatCurrency(starter.overage)}
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-800">Growth</p>
+              <p className="text-sm font-bold text-slate-900">{formatCurrency(growth.total)}</p>
+            </div>
+            {showDetailedBreakdown && (
+              <p className="mt-1 text-xs text-slate-600">
+                Subscription {formatCurrency(growth.base)} + overage {growth.overageStops.toLocaleString()} x $0.08 = {formatCurrency(growth.overage)}
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-800">Scale</p>
+              <p className="text-sm font-bold text-slate-900">{formatCurrency(scale.total)}</p>
+            </div>
+            {showDetailedBreakdown && (
+              <p className="mt-1 text-xs text-slate-600">
+                Subscription {formatCurrency(scale.base)} + overage {scale.overageStops.toLocaleString()} x $0.08 = {formatCurrency(scale.overage)}
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-emerald-900">Usage-Based</p>
+              <p className="text-sm font-bold text-emerald-900">{formatCurrency(usageTotal)}</p>
+            </div>
+            {showDetailedBreakdown && (
+              <p className="mt-1 text-xs text-emerald-800">
+                Delivery {monthlyStops.toLocaleString()} x ${USAGE_DELIVERY_STOP_RATE.toFixed(2)} + storage {storageUnits.toLocaleString()} x ${USAGE_STORAGE_UNIT_RATE.toFixed(2)}
+              </p>
+            )}
+          </div>
+
+          {billingCycle === "annual" && (
+            <p className="text-xs text-slate-500">
+              Annual mode shows effective monthly subscription pricing (2 months free equivalent). Usage-based charges remain metered by monthly activity.
+            </p>
           )}
         </div>
       </div>
@@ -459,24 +685,40 @@ export default function PricingPage() {
 
       <section className="mx-auto w-full max-w-7xl px-4 pb-12 sm:px-6 lg:px-8">
         <div className="rounded-2xl border border-slate-200 bg-white p-6">
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900">Prefer usage-based? Start free and pay as you go.</h2>
+          <p className="mt-2 text-sm text-slate-600">
+            You now have two ways to pay. Subscription plans provide predictable monthly pricing with included stops and low overage.
+            Usage-based pricing starts at $0 platform fee and bills only for delivery stops and storage units consumed.
+          </p>
+          <p className="mt-2 text-xs text-slate-500">
+            Free platform access does not include free delivery or storage. Metering is transparent in Billing and Usage.
+          </p>
+          <div className="mt-5">
+            <UsageBasedPlanCard />
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto w-full max-w-7xl px-4 pb-12 sm:px-6 lg:px-8">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6">
           <h2 className="text-2xl font-bold tracking-tight text-slate-900">How pricing works</h2>
-          <p className="mt-2 text-sm text-slate-600">Your monthly total combines one platform fee and usage-based overage when needed.</p>
+          <p className="mt-2 text-sm text-slate-600">Your monthly total combines one platform fee model and transparent usage metering.</p>
 
           <div className="mt-6 grid gap-4 md:grid-cols-3">
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Step 1</p>
-              <p className="mt-2 text-sm font-medium text-slate-900">Choose subscription tier</p>
-              <p className="mt-1 text-sm text-slate-600">Pick Starter, Growth, Scale, or Enterprise based on throughput and support needs.</p>
+              <p className="mt-2 text-sm font-medium text-slate-900">Choose model</p>
+              <p className="mt-1 text-sm text-slate-600">Select subscription tiers for predictability, or usage-based for zero fixed platform fee.</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Step 2</p>
-              <p className="mt-2 text-sm font-medium text-slate-900">Use included monthly stops</p>
-              <p className="mt-1 text-sm text-slate-600">Each plan includes a monthly stop allowance before overage applies.</p>
+              <p className="mt-2 text-sm font-medium text-slate-900">Track included usage</p>
+              <p className="mt-1 text-sm text-slate-600">Subscription plans include stops. Usage-based bills by stops and storage units.</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Step 3</p>
-              <p className="mt-2 text-sm font-medium text-slate-900">Pay transparent overage</p>
-              <p className="mt-1 text-sm text-slate-600">Extra stops are billed at $0.08/stop. No hidden billing multipliers.</p>
+              <p className="mt-2 text-sm font-medium text-slate-900">Pay transparent overage or metered usage</p>
+              <p className="mt-1 text-sm text-slate-600">Subscription overage is $0.08/stop. Usage-based is $0.12/stop + $0.18/storage unit.</p>
             </div>
           </div>
 
@@ -553,7 +795,7 @@ export default function PricingPage() {
       </section>
 
       <section className="mx-auto w-full max-w-7xl px-4 pb-12 sm:px-6 lg:px-8">
-        <UsageEstimator billingCycle={billingCycle} />
+        <SmartEstimator billingCycle={billingCycle} />
       </section>
 
       <section className="mx-auto w-full max-w-4xl px-4 pb-12 sm:px-6 lg:px-8">
