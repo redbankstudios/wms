@@ -95,7 +95,7 @@ export function Sidebar({ className, activeTab, setActiveTab }: SidebarProps) {
 
   const overviewItems = visibleItems.filter(item => ["intro"].includes(item.id))
   const warehouseItems = visibleItems.filter(item => ["dashboard", "inbound", "inventory", "storage", "orders", "tasks", "employees", "returns"].includes(item.id))
-  const clientItems = visibleItems.filter(item => ["reports"].includes(item.id))
+  const clientItems = visibleItems.filter(item => ["reports", "order-reports"].includes(item.id))
   const adminItems = visibleItems.filter(item => ["tenants", "fleet", "drivers", "settings"].includes(item.id))
   const dispatchItems = visibleItems.filter(item => ["dispatcher", "routes", "dispatch-queue"].includes(item.id))
   const mobileItems = visibleItems.filter(item => ["worker", "driver", "tracking"].includes(item.id))
@@ -108,7 +108,7 @@ export function Sidebar({ className, activeTab, setActiveTab }: SidebarProps) {
     ? clientViewOrder.flatMap(id => visibleItems.filter(item => item.id === id))
     : []
 
-  function NavItem({ id, icon, label }: { id: string; icon: string; label: string }) {
+  function renderNavItem({ id, icon, label }: { id: string; icon: string; label: string }) {
     const Icon = iconMap[icon] || LayoutDashboard
     return (
       <button
@@ -135,7 +135,7 @@ export function Sidebar({ className, activeTab, setActiveTab }: SidebarProps) {
     )
   }
 
-  function SectionGroup({ title, items, stripPrefix }: { title: string; items: typeof visibleItems; stripPrefix?: string }) {
+  function renderSectionGroup({ title, items, stripPrefix }: { title: string; items: typeof visibleItems; stripPrefix?: string }) {
     if (items.length === 0) return null
     return (
       <div className={cn("py-2", isOpen ? "px-3" : "px-2")}>
@@ -151,7 +151,7 @@ export function Sidebar({ className, activeTab, setActiveTab }: SidebarProps) {
         <div className="space-y-0.5">
           {items.map((item) => {
             const label = stripPrefix ? item.label.replace(new RegExp(`^${stripPrefix}`), "") : item.label
-            return <NavItem key={item.id} id={item.id} icon={item.icon} label={label} />
+            return <React.Fragment key={item.id}>{renderNavItem({ id: item.id, icon: item.icon, label })}</React.Fragment>
           })}
         </div>
       </div>
@@ -205,23 +205,23 @@ export function Sidebar({ className, activeTab, setActiveTab }: SidebarProps) {
             </div>
             <div className="space-y-0.5">
               {overviewItems.map(item => (
-                <NavItem key={item.id} id={item.id} icon={item.icon} label={item.label} />
+                <React.Fragment key={item.id}>{renderNavItem({ id: item.id, icon: item.icon, label: item.label })}</React.Fragment>
               ))}
             </div>
           </div>
         )}
 
-        <SectionGroup title="My Portal" items={b2bPortalItems} stripPrefix="Client " />
+        {renderSectionGroup({ title: "My Portal", items: b2bPortalItems, stripPrefix: "Client " })}
         {selectedRole !== "b2b_client" && (
-          <SectionGroup title="Warehouse" items={warehouseItems} />
+          renderSectionGroup({ title: "Warehouse", items: warehouseItems })
         )}
         {selectedRole !== "b2b_client" && (
-          <SectionGroup title="Reports" items={clientItems} />
+          renderSectionGroup({ title: "Reports", items: clientItems })
         )}
-        <SectionGroup title="Client Views" items={clientViewItems} />
-        <SectionGroup title="Dispatch & Delivery" items={dispatchItems} />
-        <SectionGroup title="Admin" items={adminItems} />
-        <SectionGroup title="Mobile Views" items={mobileItems} />
+        {renderSectionGroup({ title: "Client Views", items: clientViewItems })}
+        {renderSectionGroup({ title: "Dispatch & Delivery", items: dispatchItems })}
+        {renderSectionGroup({ title: "Admin", items: adminItems })}
+        {renderSectionGroup({ title: "Mobile Views", items: mobileItems })}
       </div>
     </div>
   )

@@ -48,7 +48,7 @@ export function TenantsManagement() {
       }
     }
     loadHistoricData()
-  }, [api, selectedTenant?.id])
+  }, [api, selectedTenant])
 
   if (loading) {
     return (

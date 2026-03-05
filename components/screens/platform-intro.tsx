@@ -122,6 +122,12 @@ const PAGE_GROUPS = [
         connectsTo: "Aggregates activity from every operational module — orders, tasks, routes, and inventory.",
       },
       {
+        label: "Order Reports",
+        icon: BarChart3,
+        summary: "Dedicated reporting view for order performance. Visualizes daily order volume and order trends with selectable windows (7D / 30D) and vendor-level filtering, so teams can analyze throughput by client account and spot demand shifts quickly.",
+        connectsTo: "Pulls live order data from Supabase and links directly to fulfillment and client performance analysis.",
+      },
+      {
         label: "Client Billing",
         icon: CreditCard,
         summary: "Tenant-level invoice management for platform operators. View current month usage broken down by service category (storage, pick & pack, routing fees) with visual progress bars. Review the full invoice history, download PDFs, manage payment methods, and process outstanding balances with one click.",
@@ -463,7 +469,7 @@ export function PlatformIntro() {
             <div className="flex items-center gap-2 text-sm font-semibold text-blue-700">
               <Shield className="h-4 w-4" /> Switch roles
             </div>
-            <p className="text-sm text-slate-700">Use the role dropdown in the top bar to see the platform through each team member's eyes. The sidebar updates instantly.</p>
+            <p className="text-sm text-slate-700">Use the role dropdown in the top bar to see the platform through each team member&apos;s eyes. The sidebar updates instantly.</p>
           </CardContent>
         </Card>
         <Card className="border-emerald-100 bg-emerald-50">
@@ -471,7 +477,7 @@ export function PlatformIntro() {
             <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
               <Building2 className="h-4 w-4" /> Switch tenants
             </div>
-            <p className="text-sm text-slate-700">Select a different tenant from the top bar to see isolated data sets — each client's inventory, orders, and billing are fully separate.</p>
+            <p className="text-sm text-slate-700">Select a different tenant from the top bar to see isolated data sets — each client&apos;s inventory, orders, and billing are fully separate.</p>
           </CardContent>
         </Card>
         <Card className="border-amber-100 bg-amber-50">

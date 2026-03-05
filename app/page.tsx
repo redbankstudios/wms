@@ -27,6 +27,7 @@ import { B2BDashboard } from "@/components/screens/b2b-dashboard"
 import { B2BOutbound } from "@/components/screens/b2b-outbound"
 import { B2BProducts } from "@/components/screens/b2b-products"
 import { B2BReports } from "@/components/screens/b2b-reports"
+import { OrderReports } from "@/components/screens/order-reports"
 import { PlatformIntro } from "@/components/screens/platform-intro"
 import { useDemo } from "@/context/DemoContext"
 import { ROLE_LANDING_PAGES, NAV_ITEMS } from "@/config/roleNavigation"
@@ -100,6 +101,8 @@ export default function Home() {
         return <OrderManagement />
       case "reports":
         return <ReportsDashboard />
+      case "order-reports":
+        return <OrderReports />
       case "billing":
         return <BillingOverview />
       case "tenants":

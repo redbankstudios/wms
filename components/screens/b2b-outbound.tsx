@@ -96,7 +96,7 @@ function NewShipmentModal({
   onClose: () => void
   onSubmit: (s: B2BOutboundShipment) => void
 }) {
-  const [referenceNumber, setReferenceNumber] = React.useState(`REF-${tenantId.toUpperCase().replace("TENANT-", "TC-")}-${Date.now().toString().slice(-6)}`)
+  const [referenceNumber, setReferenceNumber] = React.useState("")
   const [carrier, setCarrier] = React.useState("FedEx Freight")
   const [expectedArrival, setExpectedArrival] = React.useState("")
   const [totalPallets, setTotalPallets] = React.useState(1)
@@ -106,6 +106,11 @@ function NewShipmentModal({
     { productId: "", sku: "", productName: "", quantity: 1, unitsPerCase: 1 }
   ])
   const [submitting, setSubmitting] = React.useState(false)
+
+  React.useEffect(() => {
+    const suffix = Date.now().toString().slice(-6)
+    setReferenceNumber(`REF-${tenantId.toUpperCase().replace("TENANT-", "TC-")}-${suffix}`)
+  }, [tenantId])
 
   const updateLine = (idx: number, field: string, val: string | number) => {
     setLines(prev => {
@@ -364,7 +369,7 @@ export function B2BOutbound({ autoOpenModal, onAutoOpenConsumed }: { autoOpenMod
       setShowModal(true)
       onAutoOpenConsumed?.()
     }
-  }, [autoOpenModal])
+  }, [autoOpenModal, onAutoOpenConsumed])
 
   const handleSubmit = (s: B2BOutboundShipment) => {
     setShipments(prev => [s, ...prev])

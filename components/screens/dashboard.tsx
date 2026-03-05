@@ -5,22 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Package, Truck, Clock, AlertTriangle, Loader2, Database, Layers, Percent } from "lucide-react"
-import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, LineChart, Line } from "recharts"
 import { useDemo } from "@/context/DemoContext"
 import { getProvider } from "@/data"
-
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-
-function buildChartData(orders: any[]) {
-  const today = new Date()
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(today)
-    d.setDate(d.getDate() - (6 - i))
-    const dateStr = d.toISOString().slice(0, 10)
-    const count = orders.filter(o => (o.date ?? "").startsWith(dateStr)).length
-    return { name: DAY_NAMES[d.getDay()], orders: count }
-  })
-}
 
 export function OperationsDashboard() {
   const { selectedTenant } = useDemo()
@@ -47,7 +33,6 @@ export function OperationsDashboard() {
   const [incomingPallets, setIncomingPallets] = React.useState(0)
   const [activeInboundCount, setActiveInboundCount] = React.useState(0)
   const [openExceptions, setOpenExceptions] = React.useState(0)
-  const [chartData, setChartData] = React.useState<Array<{ name: string; orders: number }>>([])
   const [loading, setLoading] = React.useState(true)
   const tenantId = selectedTenant.id
 
@@ -81,7 +66,6 @@ export function OperationsDashboard() {
       setActiveInboundCount(activeShipments.length)
       const openExc = exceptions.filter((e: any) => e.status !== "resolved").length
       setOpenExceptions(openExc)
-      setChartData(buildChartData(o))
       setLoading(false)
     }
     loadData()
@@ -359,41 +343,6 @@ export function OperationsDashboard() {
                 View all -&gt;
               </button>
             </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-        <Card className="col-span-4">
-          <CardHeader>
-            <CardTitle>Daily Order Volume</CardTitle>
-            <CardDescription>Orders created per day over the past week.</CardDescription>
-          </CardHeader>
-          <CardContent className="pl-2">
-            <ResponsiveContainer width="100%" height={350}>
-              <BarChart data={chartData}>
-                <XAxis dataKey="name" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="#888888" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `${value}`} />
-                <Tooltip />
-                <Bar dataKey="orders" fill="#0f172a" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-        <Card className="col-span-3">
-          <CardHeader>
-            <CardTitle>Order Trends</CardTitle>
-            <CardDescription>Order volume over the past week.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={350}>
-              <LineChart data={chartData}>
-                <XAxis dataKey="name" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip />
-                <Line type="monotone" dataKey="orders" stroke="#0f172a" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
           </CardContent>
         </Card>
       </div>

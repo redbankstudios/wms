@@ -19,6 +19,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "employees", label: "Employees", icon: "UserCog",       roles: ["platform_owner", "business_owner", "warehouse_manager"] },
   { id: "returns",   label: "Returns",   icon: "RefreshCcw",    roles: ["platform_owner", "business_owner", "warehouse_manager"] },
   { id: "reports", label: "Business Reports", icon: "BarChart3", roles: ["platform_owner", "business_owner", "warehouse_manager"] },
+  { id: "order-reports", label: "Order Reports", icon: "BarChart3", roles: ["platform_owner", "business_owner", "warehouse_manager"] },
   { id: "billing", label: "Client Billing", icon: "FileText", roles: ["platform_owner", "business_owner"] },
   { id: "fleet", label: "Fleet", icon: "Truck", roles: ["platform_owner", "business_owner", "shipping_manager"] },
   { id: "dispatcher", label: "Dispatcher", icon: "Map", roles: ["platform_owner", "shipping_manager", "driver_dispatcher"] },

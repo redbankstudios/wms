@@ -452,7 +452,7 @@ export function ClientPortal() {
                 <Clock className="h-4 w-4 text-blue-600" />
                 <p className="font-semibold text-slate-800 dark:text-slate-200">Preferred Delivery Window</p>
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">We'll try to schedule deliveries within your preferred time window.</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">We&apos;ll try to schedule deliveries within your preferred time window.</p>
               <div className="grid grid-cols-3 gap-2">
                 {TIME_WINDOWS.map(w => (
                   <button

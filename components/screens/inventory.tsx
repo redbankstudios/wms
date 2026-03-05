@@ -274,7 +274,7 @@ export function InventoryManagement() {
   const [transferItem, setTransferItem] = React.useState<InventoryItem | null>(null)
   const [deleting, setDeleting] = React.useState(false)
 
-  async function loadData() {
+  const loadData = React.useCallback(async () => {
     setLoading(true)
     const [inv, cl, locs] = await Promise.all([
       api.inventory.getInventoryByTenant(tenantId),
@@ -285,9 +285,9 @@ export function InventoryManagement() {
     setClients(cl)
     setLocations(locs)
     setLoading(false)
-  }
+  }, [api, tenantId])
 
-  React.useEffect(() => { loadData() }, [api, tenantId])
+  React.useEffect(() => { loadData() }, [loadData])
 
   // KPIs
   const totalSkus   = inventory.length

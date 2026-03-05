@@ -31,7 +31,10 @@ export function MobileDriverMap({ stops, onStopSelect }: Props) {
   const mapRef = React.useRef<MapRef>(null)
   const [popupStop, setPopupStop] = React.useState<RouteStop | null>(null)
 
-  const stopsWithCoords = stops.filter(s => s.lat != null && s.lng != null)
+  const stopsWithCoords = React.useMemo(
+    () => stops.filter(s => s.lat != null && s.lng != null),
+    [stops]
+  )
   const missingCoords = stops.length - stopsWithCoords.length
 
   // Build route polyline GeoJSON
@@ -67,7 +70,7 @@ export function MobileDriverMap({ stops, onStopSelect }: Props) {
        [Math.max(...lngs) + 0.01, Math.max(...lats) + 0.01]],
       { padding: 48, duration: 600 }
     )
-  }, [stopsWithCoords.length])
+  }, [stopsWithCoords])
 
   if (stopsWithCoords.length === 0) {
     return (

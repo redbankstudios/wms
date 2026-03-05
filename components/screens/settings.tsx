@@ -302,7 +302,7 @@ function WarehouseTab() {
     [clients]
   )
 
-  async function loadData() {
+  const loadData = React.useCallback(async () => {
     setLoading(true)
     const [z, r, cl] = await Promise.all([
       api.storage.getWarehouseZones(tenantId),
@@ -313,9 +313,9 @@ function WarehouseTab() {
     setRacks(r)
     setClients(cl)
     setLoading(false)
-  }
+  }, [api, tenantId])
 
-  React.useEffect(() => { loadData() }, [api, tenantId])
+  React.useEffect(() => { loadData() }, [loadData])
 
   async function deleteZone(id: string) {
     if (!confirm("Delete this zone? This cannot be undone.")) return
