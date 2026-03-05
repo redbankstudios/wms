@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m json.tool)",
+      "Read(//Users/aurelianmihaigogean/.claude/projects/**)",
+      "Bash(ls -la \"/Users/aurelianmihaigogean/Desktop/wms-&-delivery/\")",
+      "Bash(find \"/Users/aurelianmihaigogean/Desktop/wms-&-delivery\" -name \"build-plan.md\" -type f)",
+      "Bash(find \"/Users/aurelianmihaigogean/Desktop/wms-&-delivery/components/screens\" -name \"*.tsx\" -type f)"
+    ]
+  }
+}

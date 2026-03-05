@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Dark mode color scheme */
+.dark {
+  color-scheme: dark;
+}
+
+/* Recharts dark mode overrides */
+.dark .recharts-cartesian-grid line {
+  stroke: #334155;
+}
+.dark .recharts-text {
+  fill: #94a3b8;
+}
+.dark .recharts-legend-item-text {
+  color: #94a3b8 !important;
+}
+.dark .recharts-default-tooltip {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #f1f5f9 !important;
+}
+.dark .recharts-tooltip-label {
+  color: #f1f5f9 !important;
+}
+.dark .recharts-tooltip-item {
+  color: #94a3b8 !important;
+}
+.dark .recharts-surface {
+  background: transparent;
+}
