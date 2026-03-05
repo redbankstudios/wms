@@ -314,6 +314,63 @@ const VALUE_POINTS = [
   },
 ]
 
+// ── Recent updates ───────────────────────────────────────────────────────────
+
+const RECENT_UPDATES = [
+  {
+    title: "Tenant foundation established",
+    description:
+      "The core tenant data model is now in place, including plan tier, storage capacity, billing cycle, and account status so platform owners can manage multi-tenant operations with clarity.",
+  },
+  {
+    title: "End-customer portal expanded",
+    description:
+      "The customer-facing tracking portal now supports delivery preferences, return requests, and post-delivery ratings, alongside a simple messaging thread for delivery questions.",
+  },
+  {
+    title: "Role-based access flows tightened",
+    description:
+      "Every role sees only the modules relevant to their responsibilities, ensuring operational focus for warehouse, dispatch, and client teams.",
+  },
+]
+
+// ── Build plan snapshot ──────────────────────────────────────────────────────
+
+const BUILD_PLAN = [
+  {
+    title: "Foundation",
+    description:
+      "Role-based navigation, tenant + user modeling, and standardized data interfaces.",
+  },
+  {
+    title: "Warehouse Ops Core",
+    description:
+      "Inbound receiving, inventory accuracy, storage planning, orders, and task execution.",
+  },
+  {
+    title: "Dispatch & Delivery",
+    description:
+      "Fleet management, live dispatcher console, route optimization, dispatch queue, and driver app.",
+  },
+  {
+    title: "Client Experience",
+    description:
+      "B2B client portal, end-customer tracking, and transparent billing views.",
+  },
+  {
+    title: "Analytics & Reliability",
+    description:
+      "Operational dashboards, alerts, audit trails, and performance foundations.",
+  },
+]
+
+const BUILD_PLAN_NEXT_STEPS = [
+  "Keep the Platform Intro page aligned with live capabilities.",
+  "Validate Supabase schemas against UI needs.",
+  "Define strict RBAC + tenant scoping rules.",
+  "Identify modules that require realtime updates.",
+]
+
 // ── Workflow detail ───────────────────────────────────────────────────────────
 
 const WORKFLOW_DETAIL = [
@@ -449,6 +506,60 @@ export function PlatformIntro() {
               </CardContent>
             </Card>
           ))}
+        </div>
+      </section>
+
+      {/* ── Recent updates ── */}
+      <section className="rounded-2xl border border-slate-200 bg-white p-6">
+        <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
+          <Sparkles className="h-4 w-4" /> Recent updates (March 5, 2026)
+        </div>
+        <p className="mt-2 text-sm text-slate-500">
+          Highlights from the most recent platform work, focused on multi-tenant operations and end-customer visibility.
+        </p>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          {RECENT_UPDATES.map((update) => (
+            <Card key={update.title} className="border-slate-100 bg-slate-50">
+              <CardContent className="p-4 space-y-2">
+                <div className="flex items-start gap-2 text-sm font-semibold text-slate-700">
+                  <CheckCircle className="h-4 w-4 text-emerald-500 mt-0.5" />
+                  <span>{update.title}</span>
+                </div>
+                <p className="text-xs text-slate-500">{update.description}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Build plan ── */}
+      <section className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
+        <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
+          <ClipboardList className="h-4 w-4" /> Build plan snapshot
+        </div>
+        <p className="mt-2 text-sm text-slate-500">
+          The roadmap prioritizes core warehouse execution, delivery orchestration, and client visibility.
+        </p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {BUILD_PLAN.map((item) => (
+            <Card key={item.title} className="border-slate-200">
+              <CardContent className="p-4 space-y-2">
+                <div className="text-sm font-semibold text-slate-700">{item.title}</div>
+                <p className="text-xs text-slate-500">{item.description}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+          <div className="text-sm font-semibold text-slate-700">Immediate next steps</div>
+          <ul className="mt-2 space-y-1 text-xs text-slate-500">
+            {BUILD_PLAN_NEXT_STEPS.map((step) => (
+              <li key={step} className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-slate-300" />
+                <span>{step}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       </section>
 
