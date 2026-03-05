@@ -605,10 +605,6 @@ export default function PricingPage() {
   return (
     <main className="min-h-screen bg-slate-50">
       <section className="mx-auto w-full max-w-7xl px-4 pb-8 pt-12 sm:px-6 lg:px-8">
-        <PlatformIntroPricingBlurb variant="default" />
-      </section>
-
-      <section className="mx-auto w-full max-w-7xl px-4 pb-8 sm:px-6 lg:px-8">
         <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm md:p-10">
           <p className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700">
             WMS + Last-Mile Delivery Pricing
