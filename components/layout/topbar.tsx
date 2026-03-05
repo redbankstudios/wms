@@ -1,8 +1,10 @@
 "use client"
 
 import * as React from "react"
-import { Bell, Search, Moon, Sun, Building2, User } from "lucide-react"
+import { Bell, Search, Moon, Sun, Building2, User, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Card, CardContent } from "@/components/ui/card"
 import { useDemo, DEMO_TENANTS, DEMO_ROLES } from "@/context/DemoContext"
 import { useTheme } from "@/context/ThemeContext"
 import {
@@ -13,10 +15,273 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Role } from "@/types"
+import { getProvider } from "@/data"
+import { NAV_ITEMS } from "@/config/roleNavigation"
+
+type SearchResult = {
+  id: string
+  type: string
+  title: string
+  subtitle?: string
+  meta?: string
+  tab: string
+  searchText: string
+}
+
+const MAX_RESULTS = 12
+const MIN_SEARCH_CHARS = 3
+
+const getNavLabel = (tabId: string) => NAV_ITEMS.find(item => item.id === tabId)?.label ?? "Module"
 
 export function Topbar() {
   const { selectedTenant, setSelectedTenant, selectedRole, setSelectedRole, notificationCount } = useDemo()
   const { theme, toggle } = useTheme()
+  const provider = React.useMemo(() => getProvider(), [])
+
+  const [query, setQuery] = React.useState("")
+  const [results, setResults] = React.useState<SearchResult[]>([])
+  const [isOpen, setIsOpen] = React.useState(false)
+  const [isLoading, setIsLoading] = React.useState(false)
+  const [index, setIndex] = React.useState<SearchResult[]>([])
+  const [indexKey, setIndexKey] = React.useState<string>("")
+  const searchRef = React.useRef<HTMLDivElement>(null)
+
+  const canSeeAllTenants = selectedRole === "platform_owner"
+
+  const buildIndex = React.useCallback(async (): Promise<SearchResult[]> => {
+    const tenantId = selectedTenant.id
+    const ordersPromise = canSeeAllTenants ? provider.orders.getAllOrders() : provider.orders.getOrdersByTenant(tenantId)
+    const inventoryPromise = canSeeAllTenants ? provider.inventory.getAllInventory() : provider.inventory.getInventoryByTenant(tenantId)
+    const tasksPromise = canSeeAllTenants ? provider.tasks.getAllTasks() : provider.tasks.getTasksByTenant(tenantId)
+    const routesPromise = canSeeAllTenants ? provider.routes.getAllRoutes() : provider.routes.getRoutesByTenant(tenantId)
+    const returnsPromise = canSeeAllTenants ? provider.returns.getAllReturns() : provider.returns.getReturnsByTenant(tenantId)
+    const vehiclesPromise = canSeeAllTenants ? provider.vehicles.getAllVehicles() : provider.vehicles.getVehiclesByTenant(tenantId)
+    const tenantsPromise = canSeeAllTenants ? provider.tenants.getTenants() : Promise.resolve([])
+
+    const [ordersRes, inventoryRes, tasksRes, routesRes, returnsRes, vehiclesRes, tenantsRes, driversRes, usersRes, clientsRes, productsRes] =
+      await Promise.allSettled([
+        ordersPromise,
+        inventoryPromise,
+        tasksPromise,
+        routesPromise,
+        returnsPromise,
+        vehiclesPromise,
+        tenantsPromise,
+        provider.drivers.getDriversByTenant(tenantId),
+        provider.users.getUsersByTenant(tenantId),
+        provider.clients.getClientsByTenant(tenantId),
+        provider.products.getProductsByTenant(tenantId),
+      ])
+
+    const unwrap = <T,>(res: PromiseSettledResult<T>, fallback: T): T =>
+      res.status === "fulfilled" ? res.value : fallback
+
+    const orders = unwrap(ordersRes, [])
+    const inventory = unwrap(inventoryRes, [])
+    const tasks = unwrap(tasksRes, [])
+    const routes = unwrap(routesRes, [])
+    const returnsData = unwrap(returnsRes, [])
+    const vehicles = unwrap(vehiclesRes, [])
+    const tenants = unwrap(tenantsRes, [])
+    const drivers = unwrap(driversRes, [])
+    const users = unwrap(usersRes, [])
+    const clients = unwrap(clientsRes, [])
+    const products = unwrap(productsRes, [])
+
+    const items: SearchResult[] = []
+
+    tenants.forEach((tenant) => {
+      items.push({
+        id: tenant.id,
+        type: "Tenant",
+        title: tenant.name,
+        subtitle: tenant.plan ? `${tenant.plan} plan` : "Tenant account",
+        meta: tenant.status,
+        tab: "tenants",
+        searchText: `${tenant.name} ${tenant.plan ?? ""} ${tenant.status}`.toLowerCase(),
+      })
+    })
+
+    orders.forEach((order) => {
+      items.push({
+        id: order.id,
+        type: "Order",
+        title: `${order.id} · ${order.client}`,
+        subtitle: order.destination,
+        meta: order.status,
+        tab: "orders",
+        searchText: `${order.id} ${order.client} ${order.destination} ${order.status}`.toLowerCase(),
+      })
+    })
+
+    inventory.forEach((item) => {
+      items.push({
+        id: item.id,
+        type: "Inventory",
+        title: `${item.sku} · ${item.name}`,
+        subtitle: item.location,
+        meta: `${item.qty} on hand`,
+        tab: "inventory",
+        searchText: `${item.sku} ${item.name} ${item.location} ${item.client} ${item.status}`.toLowerCase(),
+      })
+    })
+
+    tasks.forEach((task) => {
+      items.push({
+        id: task.id,
+        type: "Task",
+        title: `${task.type} · ${task.id}`,
+        subtitle: `Assignee: ${task.assignee || "Unassigned"}`,
+        meta: task.status,
+        tab: "tasks",
+        searchText: `${task.id} ${task.type} ${task.assignee ?? ""} ${task.status} ${task.priority}`.toLowerCase(),
+      })
+    })
+
+    routes.forEach((route) => {
+      items.push({
+        id: route.id,
+        type: "Route",
+        title: `${route.id} · ${route.driverName}`,
+        subtitle: `Vehicle ${route.vehicleId}`,
+        meta: route.status,
+        tab: "routes",
+        searchText: `${route.id} ${route.driverName} ${route.vehicleId} ${route.status} ${route.shift}`.toLowerCase(),
+      })
+    })
+
+    returnsData.forEach((ret) => {
+      items.push({
+        id: ret.id,
+        type: "Return",
+        title: `${ret.id} · ${ret.client}`,
+        subtitle: `Order ${ret.orderId}`,
+        meta: ret.status,
+        tab: "returns",
+        searchText: `${ret.id} ${ret.client} ${ret.orderId} ${ret.reason} ${ret.status}`.toLowerCase(),
+      })
+    })
+
+    vehicles.forEach((vehicle) => {
+      items.push({
+        id: vehicle.id,
+        type: "Vehicle",
+        title: `${vehicle.plate} · ${vehicle.type}`,
+        subtitle: vehicle.location,
+        meta: vehicle.status.replace("_", " "),
+        tab: "fleet",
+        searchText: `${vehicle.id} ${vehicle.plate} ${vehicle.type} ${vehicle.location} ${vehicle.status}`.toLowerCase(),
+      })
+    })
+
+    drivers.forEach((driver) => {
+      items.push({
+        id: driver.id,
+        type: "Driver",
+        title: driver.name,
+        subtitle: driver.email ?? driver.phone ?? "Driver profile",
+        meta: driver.status.replace("_", " "),
+        tab: "drivers",
+        searchText: `${driver.id} ${driver.name} ${driver.email ?? ""} ${driver.phone ?? ""} ${driver.status}`.toLowerCase(),
+      })
+    })
+
+    users.forEach((user) => {
+      items.push({
+        id: user.id,
+        type: "Employee",
+        title: user.name,
+        subtitle: user.email,
+        meta: user.role.replace("_", " "),
+        tab: "employees",
+        searchText: `${user.id} ${user.name} ${user.email} ${user.role}`.toLowerCase(),
+      })
+    })
+
+    clients.forEach((client) => {
+      items.push({
+        id: client.id,
+        type: "Client",
+        title: client.name,
+        subtitle: client.contactName || client.contactEmail || "Client account",
+        meta: client.status,
+        tab: "b2b-dashboard",
+        searchText: `${client.id} ${client.name} ${client.contactName ?? ""} ${client.contactEmail ?? ""} ${client.status}`.toLowerCase(),
+      })
+    })
+
+    products.forEach((product) => {
+      items.push({
+        id: product.id,
+        type: "Product",
+        title: `${product.sku} · ${product.name}`,
+        subtitle: product.status,
+        meta: product.clientId ? `Client ${product.clientId}` : undefined,
+        tab: "b2b-products",
+        searchText: `${product.id} ${product.sku} ${product.name} ${product.clientId ?? ""} ${product.status}`.toLowerCase(),
+      })
+    })
+
+    return items
+  }, [canSeeAllTenants, provider, selectedTenant.id])
+
+  const ensureIndex = React.useCallback(async () => {
+    const key = `${selectedRole}:${selectedTenant.id}`
+    if (indexKey === key && index.length > 0) return
+    if (isLoading) return
+    setIsLoading(true)
+    try {
+      const data = await buildIndex()
+      setIndex(data)
+      setIndexKey(key)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [buildIndex, index, indexKey, isLoading, selectedRole, selectedTenant.id])
+
+  React.useEffect(() => {
+    if (query.trim().length < MIN_SEARCH_CHARS) {
+      setResults([])
+      setIsOpen(false)
+      return
+    }
+
+    let active = true
+    const run = async () => {
+      await ensureIndex()
+      if (!active) return
+      const q = query.trim().toLowerCase()
+      const filtered = index.filter(item => item.searchText.includes(q)).slice(0, MAX_RESULTS)
+      setResults(filtered)
+      setIsOpen(true)
+    }
+
+    const handle = window.setTimeout(run, 200)
+    return () => {
+      active = false
+      window.clearTimeout(handle)
+    }
+  }, [ensureIndex, index, query])
+
+  React.useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (!searchRef.current) return
+      if (!searchRef.current.contains(event.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
+
+  const navigateToTab = (tab: string) => {
+    const url = new URL(window.location.href)
+    url.searchParams.set("tab", tab)
+    window.history.pushState({}, "", url.toString())
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    setIsOpen(false)
+    setQuery("")
+  }
 
   return (
     <div className="flex h-16 items-center px-4 border-b bg-white dark:bg-slate-900 dark:border-slate-700">
@@ -70,13 +335,77 @@ export function Topbar() {
       </div>
 
       <div className="ml-auto flex items-center space-x-4">
-        <div className="relative">
+        <div className="relative" ref={searchRef}>
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-500 dark:text-slate-400" />
           <input
             type="search"
             placeholder="Search..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onFocus={() => {
+              if (query.trim().length >= MIN_SEARCH_CHARS) setIsOpen(true)
+            }}
             className="h-9 w-64 rounded-md border border-slate-200 bg-slate-50 pl-9 pr-4 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-400 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 dark:placeholder-slate-500 dark:focus:border-slate-400"
           />
+
+          {isOpen && (
+            <div className="absolute left-0 top-11 z-40 w-[28rem] rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                <span>Search results</span>
+                {isLoading && (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Indexing data
+                  </span>
+                )}
+              </div>
+
+              {query.trim().length < MIN_SEARCH_CHARS && (
+                <div className="px-4 py-3 text-xs text-slate-500">
+                  Type at least {MIN_SEARCH_CHARS} characters to search the database.
+                </div>
+              )}
+
+              {query.trim().length >= MIN_SEARCH_CHARS && results.length === 0 && !isLoading && (
+                <div className="px-4 py-3 text-xs text-slate-500">
+                  No matches found. Try a different keyword or ID.
+                </div>
+              )}
+
+              {results.length > 0 && (
+                <div className="max-h-[380px] overflow-y-auto p-3 space-y-2">
+                  {results.map((result) => (
+                    <Card
+                      key={`${result.type}-${result.id}`}
+                      className="border-slate-100 bg-slate-50 transition hover:border-slate-200 hover:bg-white dark:border-slate-800 dark:bg-slate-950/60 dark:hover:border-slate-700"
+                    >
+                      <button
+                        onClick={() => navigateToTab(result.tab)}
+                        className="w-full text-left"
+                      >
+                        <CardContent className="p-3 space-y-1">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                              {result.type}
+                            </Badge>
+                            <span className="text-xs text-slate-400">{getNavLabel(result.tab)}</span>
+                          </div>
+                          <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                            {result.title}
+                          </div>
+                          {result.subtitle && (
+                            <div className="text-xs text-slate-500">{result.subtitle}</div>
+                          )}
+                          {result.meta && (
+                            <div className="text-[11px] uppercase tracking-wide text-slate-400">{result.meta}</div>
+                          )}
+                        </CardContent>
+                      </button>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <Button variant="ghost" size="icon" className="relative dark:hover:bg-slate-800">
           <Bell className="h-5 w-5 text-slate-600 dark:text-slate-400" />
