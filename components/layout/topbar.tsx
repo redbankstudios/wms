@@ -32,6 +32,19 @@ const MAX_RESULTS = 12
 const MIN_SEARCH_CHARS = 3
 
 const getNavLabel = (tabId: string) => NAV_ITEMS.find(item => item.id === tabId)?.label ?? "Module"
+const TYPE_STYLES: Record<string, { badge: string; card: string }> = {
+  Tenant: { badge: "bg-slate-900 text-white border-slate-900", card: "border-l-4 border-l-slate-900" },
+  Order: { badge: "bg-blue-600 text-white border-blue-600", card: "border-l-4 border-l-blue-600" },
+  Inventory: { badge: "bg-emerald-600 text-white border-emerald-600", card: "border-l-4 border-l-emerald-600" },
+  Task: { badge: "bg-amber-500 text-white border-amber-500", card: "border-l-4 border-l-amber-500" },
+  Route: { badge: "bg-indigo-600 text-white border-indigo-600", card: "border-l-4 border-l-indigo-600" },
+  Return: { badge: "bg-rose-600 text-white border-rose-600", card: "border-l-4 border-l-rose-600" },
+  Vehicle: { badge: "bg-cyan-600 text-white border-cyan-600", card: "border-l-4 border-l-cyan-600" },
+  Driver: { badge: "bg-teal-600 text-white border-teal-600", card: "border-l-4 border-l-teal-600" },
+  Employee: { badge: "bg-purple-600 text-white border-purple-600", card: "border-l-4 border-l-purple-600" },
+  Client: { badge: "bg-sky-600 text-white border-sky-600", card: "border-l-4 border-l-sky-600" },
+  Product: { badge: "bg-orange-600 text-white border-orange-600", card: "border-l-4 border-l-orange-600" },
+}
 
 export function Topbar() {
   const { selectedTenant, setSelectedTenant, selectedRole, setSelectedRole, notificationCount } = useDemo()
@@ -44,7 +57,9 @@ export function Topbar() {
   const [isLoading, setIsLoading] = React.useState(false)
   const [index, setIndex] = React.useState<SearchResult[]>([])
   const [indexKey, setIndexKey] = React.useState<string>("")
+  const [activeIndex, setActiveIndex] = React.useState<number>(-1)
   const searchRef = React.useRef<HTMLDivElement>(null)
+  const resultRefs = React.useRef<Array<HTMLButtonElement | null>>([])
 
   const canSeeAllTenants = selectedRole === "platform_owner"
 
@@ -243,6 +258,7 @@ export function Topbar() {
     if (query.trim().length < MIN_SEARCH_CHARS) {
       setResults([])
       setIsOpen(false)
+      setActiveIndex(-1)
       return
     }
 
@@ -254,6 +270,7 @@ export function Topbar() {
       const filtered = index.filter(item => item.searchText.includes(q)).slice(0, MAX_RESULTS)
       setResults(filtered)
       setIsOpen(true)
+      setActiveIndex(filtered.length > 0 ? 0 : -1)
     }
 
     const handle = window.setTimeout(run, 200)
@@ -268,6 +285,7 @@ export function Topbar() {
       if (!searchRef.current) return
       if (!searchRef.current.contains(event.target as Node)) {
         setIsOpen(false)
+        setActiveIndex(-1)
       }
     }
     document.addEventListener("mousedown", handleClickOutside)
@@ -281,6 +299,39 @@ export function Topbar() {
     window.dispatchEvent(new PopStateEvent("popstate"))
     setIsOpen(false)
     setQuery("")
+    setActiveIndex(-1)
+  }
+
+  React.useEffect(() => {
+    if (activeIndex < 0) return
+    const node = resultRefs.current[activeIndex]
+    node?.scrollIntoView({ block: "nearest" })
+  }, [activeIndex])
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!isOpen || results.length === 0) {
+      if (event.key === "ArrowDown" && query.trim().length >= MIN_SEARCH_CHARS) {
+        setIsOpen(true)
+        setActiveIndex(0)
+      }
+      return
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault()
+      setActiveIndex((prev) => (prev + 1) % results.length)
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault()
+      setActiveIndex((prev) => (prev - 1 + results.length) % results.length)
+    } else if (event.key === "Enter") {
+      event.preventDefault()
+      const selected = results[activeIndex]
+      if (selected) navigateToTab(selected.tab)
+    } else if (event.key === "Escape") {
+      event.preventDefault()
+      setIsOpen(false)
+      setActiveIndex(-1)
+    }
   }
 
   return (
@@ -345,6 +396,7 @@ export function Topbar() {
             onFocus={() => {
               if (query.trim().length >= MIN_SEARCH_CHARS) setIsOpen(true)
             }}
+            onKeyDown={handleKeyDown}
             className="h-9 w-64 rounded-md border border-slate-200 bg-slate-50 pl-9 pr-4 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-400 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 dark:placeholder-slate-500 dark:focus:border-slate-400"
           />
 
@@ -373,35 +425,41 @@ export function Topbar() {
 
               {results.length > 0 && (
                 <div className="max-h-[380px] overflow-y-auto p-3 space-y-2">
-                  {results.map((result) => (
-                    <Card
-                      key={`${result.type}-${result.id}`}
-                      className="border-slate-100 bg-slate-50 transition hover:border-slate-200 hover:bg-white dark:border-slate-800 dark:bg-slate-950/60 dark:hover:border-slate-700"
-                    >
-                      <button
-                        onClick={() => navigateToTab(result.tab)}
-                        className="w-full text-left"
+                  {results.map((result, idx) => {
+                    const styles = TYPE_STYLES[result.type] ?? { badge: "bg-slate-700 text-white border-slate-700", card: "border-l-4 border-l-slate-700" }
+                    return (
+                      <Card
+                        key={`${result.type}-${result.id}`}
+                        className={`border-slate-100 bg-slate-50 transition hover:border-slate-200 hover:bg-white dark:border-slate-800 dark:bg-slate-950/60 dark:hover:border-slate-700 ${styles.card} ${
+                          idx === activeIndex ? "ring-2 ring-blue-500/40 border-blue-200 bg-white dark:border-blue-500/40" : ""
+                        }`}
                       >
-                        <CardContent className="p-3 space-y-1">
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                              {result.type}
-                            </Badge>
-                            <span className="text-xs text-slate-400">{getNavLabel(result.tab)}</span>
-                          </div>
-                          <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                            {result.title}
-                          </div>
-                          {result.subtitle && (
-                            <div className="text-xs text-slate-500">{result.subtitle}</div>
-                          )}
-                          {result.meta && (
-                            <div className="text-[11px] uppercase tracking-wide text-slate-400">{result.meta}</div>
-                          )}
-                        </CardContent>
-                      </button>
-                    </Card>
-                  ))}
+                        <button
+                          ref={(el) => { resultRefs.current[idx] = el }}
+                          onClick={() => navigateToTab(result.tab)}
+                          className="w-full text-left"
+                        >
+                          <CardContent className="p-3 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <Badge className={`uppercase tracking-wide text-[10px] font-semibold ${styles.badge}`}>
+                                {result.type}
+                              </Badge>
+                              <span className="text-xs text-slate-400">{getNavLabel(result.tab)}</span>
+                            </div>
+                            <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                              {result.title}
+                            </div>
+                            {result.subtitle && (
+                              <div className="text-xs text-slate-500">{result.subtitle}</div>
+                            )}
+                            {result.meta && (
+                              <div className="text-[11px] uppercase tracking-wide text-slate-400">{result.meta}</div>
+                            )}
+                          </CardContent>
+                        </button>
+                      </Card>
+                    )
+                  })}
                 </div>
               )}
             </div>
