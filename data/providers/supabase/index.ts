@@ -232,9 +232,17 @@ export const supabaseProvider: IDataProvider = {
         type: row.type,
         status: row.status,
         assignee: row.assignee ?? "",
+        assigneeId: row.assignee_id ?? null,
+        orderId: row.order_id ?? null,
         location: row.location ?? "",
         items: row.items ?? 0,
         priority: row.priority ?? "normal",
+        scheduledDate: row.scheduled_date ?? null,
+        assignedAt: row.assigned_at ?? null,
+        estimatedPackages: row.estimated_packages ?? null,
+        estimatedEffort: row.estimated_effort ?? null,
+        zone: row.zone ?? null,
+        createdAt: row.created_at ?? undefined,
       })) as Task[]
     },
     getAllTasks: async (): Promise<Task[]> => {
@@ -246,9 +254,17 @@ export const supabaseProvider: IDataProvider = {
         type: row.type,
         status: row.status,
         assignee: row.assignee ?? "",
+        assigneeId: row.assignee_id ?? null,
+        orderId: row.order_id ?? null,
         location: row.location ?? "",
         items: row.items ?? 0,
         priority: row.priority ?? "normal",
+        scheduledDate: row.scheduled_date ?? null,
+        assignedAt: row.assigned_at ?? null,
+        estimatedPackages: row.estimated_packages ?? null,
+        estimatedEffort: row.estimated_effort ?? null,
+        zone: row.zone ?? null,
+        createdAt: row.created_at ?? undefined,
       })) as Task[]
     },
     createTask: async (task: Omit<Task, "id">): Promise<Task> => {
@@ -259,9 +275,16 @@ export const supabaseProvider: IDataProvider = {
         type: task.type,
         status: task.status,
         assignee: task.assignee,
+        assignee_id: task.assigneeId ?? null,
+        order_id: task.orderId ?? null,
         location: task.location,
         items: task.items,
         priority: task.priority,
+        scheduled_date: task.scheduledDate ?? null,
+        assigned_at: task.assigneeId ? new Date().toISOString() : null,
+        estimated_packages: task.estimatedPackages ?? null,
+        estimated_effort: task.estimatedEffort ?? null,
+        zone: task.zone ?? null,
       })
       return {
         id: row.id,
@@ -269,9 +292,17 @@ export const supabaseProvider: IDataProvider = {
         type: row.type,
         status: row.status,
         assignee: row.assignee ?? "",
+        assigneeId: row.assignee_id ?? null,
+        orderId: row.order_id ?? null,
         location: row.location ?? "",
         items: row.items ?? 0,
         priority: row.priority ?? "normal",
+        scheduledDate: row.scheduled_date ?? null,
+        assignedAt: row.assigned_at ?? null,
+        estimatedPackages: row.estimated_packages ?? null,
+        estimatedEffort: row.estimated_effort ?? null,
+        zone: row.zone ?? null,
+        createdAt: row.created_at ?? undefined,
       } as Task
     },
     updateTaskStatus: async (taskId: string, status: Task["status"]): Promise<void> => {
@@ -281,10 +312,19 @@ export const supabaseProvider: IDataProvider = {
       const payload: Record<string, unknown> = {}
       if (updates.status !== undefined) payload.status = updates.status
       if (updates.assignee !== undefined) payload.assignee = updates.assignee
+      if (updates.assigneeId !== undefined) {
+        payload.assignee_id = updates.assigneeId ?? null
+        if (updates.assigneeId) payload.assigned_at = new Date().toISOString()
+      }
+      if (updates.orderId !== undefined) payload.order_id = updates.orderId ?? null
       if (updates.location !== undefined) payload.location = updates.location
       if (updates.items !== undefined) payload.items = updates.items
       if (updates.priority !== undefined) payload.priority = updates.priority
       if (updates.type !== undefined) payload.type = updates.type
+      if (updates.scheduledDate !== undefined) payload.scheduled_date = updates.scheduledDate ?? null
+      if (updates.estimatedPackages !== undefined) payload.estimated_packages = updates.estimatedPackages ?? null
+      if (updates.estimatedEffort !== undefined) payload.estimated_effort = updates.estimatedEffort ?? null
+      if (updates.zone !== undefined) payload.zone = updates.zone ?? null
       await supabasePatch("tasks", `id=eq.${taskId}`, payload)
     },
     deleteTask: async (taskId: string): Promise<void> => {
@@ -1409,6 +1449,11 @@ export const supabaseProvider: IDataProvider = {
         email: row.email ?? "",
         role: row.role,
         active: row.active ?? true,
+        dailyQuotaPackages: row.daily_quota_packages ?? null,
+        dailyQuotaTasks: row.daily_quota_tasks ?? null,
+        preferredPrimaryTaskType: row.preferred_primary_task_type ?? null,
+        allowedTaskTypes: row.allowed_task_types ?? null,
+        defaultZone: row.default_zone ?? null,
       })) as User[]
     },
     createUser: async (user: Omit<User, "id">): Promise<User> => {
@@ -1420,8 +1465,25 @@ export const supabaseProvider: IDataProvider = {
         email: user.email,
         role: user.role,
         active: user.active ?? true,
+        daily_quota_packages: user.dailyQuotaPackages ?? null,
+        daily_quota_tasks: user.dailyQuotaTasks ?? null,
+        preferred_primary_task_type: user.preferredPrimaryTaskType ?? null,
+        allowed_task_types: user.allowedTaskTypes ?? null,
+        default_zone: user.defaultZone ?? null,
       })
-      return { id: row.id, tenantId: row.tenant_id, name: row.name, email: row.email ?? "", role: row.role, active: row.active } as User
+      return {
+        id: row.id,
+        tenantId: row.tenant_id,
+        name: row.name,
+        email: row.email ?? "",
+        role: row.role,
+        active: row.active,
+        dailyQuotaPackages: row.daily_quota_packages ?? null,
+        dailyQuotaTasks: row.daily_quota_tasks ?? null,
+        preferredPrimaryTaskType: row.preferred_primary_task_type ?? null,
+        allowedTaskTypes: row.allowed_task_types ?? null,
+        defaultZone: row.default_zone ?? null,
+      } as User
     },
     updateUser: async (userId: string, updates: Partial<User>): Promise<void> => {
       const payload: Record<string, unknown> = {}
@@ -1429,6 +1491,11 @@ export const supabaseProvider: IDataProvider = {
       if (updates.email  !== undefined) payload.email  = updates.email
       if (updates.role   !== undefined) payload.role   = updates.role
       if (updates.active !== undefined) payload.active = updates.active
+      if (updates.dailyQuotaPackages !== undefined) payload.daily_quota_packages = updates.dailyQuotaPackages ?? null
+      if (updates.dailyQuotaTasks    !== undefined) payload.daily_quota_tasks    = updates.dailyQuotaTasks ?? null
+      if (updates.preferredPrimaryTaskType !== undefined) payload.preferred_primary_task_type = updates.preferredPrimaryTaskType ?? null
+      if (updates.allowedTaskTypes   !== undefined) payload.allowed_task_types   = updates.allowedTaskTypes ?? null
+      if (updates.defaultZone        !== undefined) payload.default_zone         = updates.defaultZone ?? null
       await supabasePatch("users", `id=eq.${userId}`, payload)
     },
     deleteUser: async (userId: string): Promise<void> => {

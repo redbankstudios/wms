@@ -217,6 +217,7 @@ export function StorageManagement() {
         assignee: taskForm.assignee || "Unassigned",
         location: taskForm.location,
         items: taskForm.items,
+        scheduledDate: new Date().toISOString().slice(0, 10),
       })
       setModalSuccess(true)
     } finally {

@@ -500,6 +500,8 @@ export function InboundManagement() {
     try {
       const priority = getPriority(selected.arrivalDate, selected.arrivalWindowStart)
 
+      const scheduledDate = new Date().toISOString().slice(0, 10)
+
       // 1 Receive task for the shipment
       await api.tasks.createTask({
         tenantId: selected.tenantId,
@@ -509,6 +511,8 @@ export function InboundManagement() {
         location: `Rec Dock • Door ${selected.dockDoor}`,
         items: selected.totalPallets,
         priority,
+        scheduledDate,
+        estimatedPackages: selected.totalPallets,
       })
 
       // 1 Putaway task per pallet
@@ -521,6 +525,9 @@ export function InboundManagement() {
           location: pallet.assignedLocationCode ?? `Zone • Unassigned`,
           items: 1,
           priority,
+          scheduledDate,
+          estimatedPackages: 1,
+          zone: pallet.assignedZoneId ?? null,
         })
       }
 

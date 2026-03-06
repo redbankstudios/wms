@@ -1,5 +1,7 @@
 export type Role = "platform_owner" | "business_owner" | "warehouse_manager" | "shipping_manager" | "warehouse_employee" | "packer" | "driver" | "driver_dispatcher" | "b2b_client" | "end_customer";
 
+export type TaskType = "Receive" | "Putaway" | "Pick" | "Pack" | "Return";
+
 export interface Tenant {
   id: string;
   name: string;
@@ -24,6 +26,12 @@ export interface User {
   email: string;
   role: Role;
   active: boolean;
+  // Workload / quota fields (null = not configured)
+  dailyQuotaPackages?: number | null;
+  dailyQuotaTasks?: number | null;
+  preferredPrimaryTaskType?: TaskType | null;
+  allowedTaskTypes?: TaskType[] | null;
+  defaultZone?: string | null;
 }
 
 export interface Vehicle {
@@ -101,14 +109,21 @@ export interface InventoryItem {
 export interface Task {
   id: string;
   tenantId: string;
-  type: "Receive" | "Putaway" | "Pick" | "Pack" | "Return";
+  type: TaskType;
   status: "pending" | "in_progress" | "completed";
   assignee: string;
-  assigneeId?: string;
-  orderId?: string;
+  assigneeId?: string | null;
+  orderId?: string | null;
   location: string;
   items: number;
   priority: "normal" | "high" | "urgent";
+  // Scheduling / workload fields
+  scheduledDate?: string | null;   // ISO date string "YYYY-MM-DD"
+  assignedAt?: string | null;      // ISO timestamptz
+  estimatedPackages?: number | null;
+  estimatedEffort?: number | null;
+  zone?: string | null;
+  createdAt?: string;
 }
 
 export interface RouteStop {
