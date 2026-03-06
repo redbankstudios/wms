@@ -188,9 +188,9 @@ values
 insert into public.racks
 (id, tenant_id, warehouse_id, zone_id, code, side, level_count, bay_count, total_capacity, used_capacity, preferred_client_id)
 values
-('R-01', 'tenant-1', 'WH-01', 'Z-01', 'R-01',  'A', 5, 10, 100,  95, 'C-101'),
-('R-02', 'tenant-1', 'WH-01', 'Z-01', 'R-02',  'B', 5, 10, 100, 100, 'C-101'),
-('R-03', 'tenant-1', 'WH-01', 'Z-01', 'R-03',  'A', 5, 10, 100,  40, 'C-102'),
+('R-01', 'tenant-1', 'WH-01', 'Z-01', 'R-01',  'A', 5, 10, 100,  95, 'CLT-101'),
+('R-02', 'tenant-1', 'WH-01', 'Z-01', 'R-02',  'B', 5, 10, 100, 100, 'CLT-101'),
+('R-03', 'tenant-1', 'WH-01', 'Z-01', 'R-03',  'A', 5, 10, 100,  40, 'CLT-102'),
 ('R-04', 'tenant-1', 'WH-01', 'Z-01', 'R-04',  'B', 5, 10, 100,  80, null),
 ('R-05', 'tenant-1', 'WH-01', 'Z-02', 'FP-01', 'A', 3, 15,  90,  85, null),
 ('R-06', 'tenant-1', 'WH-01', 'Z-02', 'FP-02', 'B', 3, 15,  90,  70, null),
@@ -222,13 +222,13 @@ values
 
 -- Putaway suggestions
 insert into public.putaway_suggestions
-(id, type, message, priority, action_label)
+(id, type, message, priority, action_label, associated_zone_id, associated_rack_id, associated_client_id)
 values
-('S-01', 'consolidation', 'BeanRoasters is split across 12 racks; consolidate into Zone A (Reserve).', 'high',   'View Consolidation Plan'),
-('S-02', 'overflow',      'Reserve Rack R-02 is at 100% capacity; redirect new TechCorp pallets to Overflow Zone.', 'medium', 'Update Rules'),
-('S-03', 'replenishment', 'Forward Pick Zone is low on capacity for fast movers (TechCorp).', 'high',   'Create Replenishment Task'),
-('S-04', 'grouping',      'Returns zone occupancy is rising (85%); clear RTV pallets.', 'medium', 'Process Returns'),
-('S-05', 'grouping',      'Preferred tenant grouping available in Rack R-03 for FitLife.', 'low',    'Assign Rack');
+('S-01', 'consolidation', 'BeanRoasters is split across 12 racks; consolidate into Zone A (Reserve).', 'high',   'View Consolidation Plan',      'Z-01', null,   'CLT-103'),
+('S-02', 'overflow',      'Reserve Rack R-02 is at 100% capacity; redirect new TechCorp pallets to Overflow Zone.', 'medium', 'Update Rules', 'Z-03', 'R-02', 'CLT-101'),
+('S-03', 'replenishment', 'Forward Pick Zone is low on capacity for fast movers (TechCorp).', 'high',   'Create Replenishment Task',    'Z-02', null,   'CLT-101'),
+('S-04', 'grouping',      'Returns zone occupancy is rising (85%); clear RTV pallets.', 'medium', 'Process Returns',               'Z-04', null,   null),
+('S-05', 'grouping',      'Preferred tenant grouping available in Rack R-03 for FitLife.', 'low',    'Assign Rack',                  'Z-01', 'R-03', 'CLT-102');
 
 -- Locations (physical warehouses)
 insert into public.locations

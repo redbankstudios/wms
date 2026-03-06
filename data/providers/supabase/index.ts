@@ -758,6 +758,9 @@ export const supabaseProvider: IDataProvider = {
         message: row.message,
         priority: row.priority,
         actionLabel: row.action_label ?? "",
+        associatedZoneId: row.associated_zone_id ?? undefined,
+        associatedRackId: row.associated_rack_id ?? undefined,
+        associatedClientId: row.associated_client_id ?? undefined,
       })) as PutawaySuggestion[]
     },
     getDashboardStorageSummary: async (tenantId: string) => {

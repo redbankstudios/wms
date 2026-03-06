@@ -256,6 +256,9 @@ export interface PutawaySuggestion {
   message: string;
   priority: "low" | "medium" | "high";
   actionLabel: string;
+  associatedZoneId?: string;
+  associatedRackId?: string;
+  associatedClientId?: string;
 }
 
 export interface Location {
