@@ -8,7 +8,7 @@ import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
-  UserCog, Plus, Pencil, Trash2, Loader2, Search,
+  Plus, Pencil, Trash2, Loader2, Search,
   Users, CheckCircle2, Package, HardHat,
 } from "lucide-react"
 import { User, Role } from "@/types"
@@ -165,7 +165,7 @@ function EmployeeFormModal({ open, onClose, onSave, initial, saving }: EmployeeF
             <Button type="button" variant="outline" className="flex-1" onClick={onClose} disabled={saving}>
               Cancel
             </Button>
-            <Button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700" disabled={!valid || saving}>
+            <Button type="submit" className="flex-1 bg-slate-900 text-white hover:bg-slate-800" disabled={!valid || saving}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               {initial ? "Save Changes" : "Add Employee"}
             </Button>
@@ -261,16 +261,11 @@ export function EmployeesManagement() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-sm">
-            <UserCog className="h-5 w-5 text-white" />
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Employees</h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Warehouse staff available for task assignment</p>
-          </div>
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Employees</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Warehouse staff available for task assignment</p>
         </div>
-        <Button onClick={openAdd} className="bg-blue-600 hover:bg-blue-700">
+        <Button onClick={openAdd} className="bg-slate-900 text-white hover:bg-slate-800">
           <Plus className="h-4 w-4 mr-2" /> Add Employee
         </Button>
       </div>

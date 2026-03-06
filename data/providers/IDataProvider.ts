@@ -88,8 +88,8 @@ export interface OrdersProvider {
 export interface InventoryProvider {
   getInventoryByTenant(tenantId: string): Promise<InventoryItem[]>
   getAllInventory(): Promise<InventoryItem[]>
-  createInventoryItem(data: { tenantId: string; sku: string; name: string; location: string; status: InventoryItem["status"]; qty: number; minStock: number; client: string }): Promise<InventoryItem>
-  updateInventoryItem(id: string, updates: { sku?: string; name?: string; location?: string; status?: InventoryItem["status"]; qty?: number; minStock?: number; client?: string }): Promise<void>
+  createInventoryItem(data: { tenantId: string; sku: string; name: string; location: string; status: InventoryItem["status"]; qty: number; minStock: number; client: string; productUnits?: number }): Promise<InventoryItem>
+  updateInventoryItem(id: string, updates: { sku?: string; name?: string; location?: string; status?: InventoryItem["status"]; qty?: number; minStock?: number; client?: string; productUnits?: number }): Promise<void>
   deleteInventoryItem(id: string): Promise<void>
 }
 

@@ -8,11 +8,16 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import {
   ArrowRightLeft, Search, AlertTriangle, Loader2, Plus,
-  Pencil, Trash2, Package, BoxesIcon, ShieldAlert, Clock, X, Filter
+  Pencil, Trash2, Package, BoxesIcon, ShieldAlert, Clock, X, Filter, Layers
 } from "lucide-react"
-import { InventoryItem, StorageLocation, Client } from "@/types"
+import { InventoryItem, StorageLocation, Client, WarehouseZone } from "@/types"
 import { useDemo } from "@/context/DemoContext"
 import { getProvider } from "@/data"
+
+function navigateTo(tab: string) {
+  window.history.pushState(null, "", `/?tab=${tab}`)
+  window.dispatchEvent(new PopStateEvent("popstate"))
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -30,6 +35,14 @@ const STATUS_LABELS: Record<Status, string> = {
 const inputCls = "flex h-9 w-full rounded-md border border-slate-200 bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-950 disabled:opacity-50"
 const selectCls = "flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-950 disabled:opacity-50"
 
+const ZONE_DOT: Record<string, string> = {
+  blue:    "bg-blue-500",
+  emerald: "bg-emerald-500",
+  amber:   "bg-amber-500",
+  red:     "bg-red-500",
+  slate:   "bg-slate-500",
+}
+
 function statusBadgeVariant(status: Status): "default" | "secondary" | "destructive" | "outline" {
   if (status === "available") return "default"
   if (status === "reserved") return "secondary"
@@ -41,11 +54,11 @@ function statusBadgeVariant(status: Status): "default" | "secondary" | "destruct
 
 interface ItemForm {
   sku: string; name: string; client: string; location: string
-  status: Status; qty: string; minStock: string
+  status: Status; qty: string; minStock: string; productUnits: string
 }
 
 const emptyItemForm: ItemForm = {
-  sku: "", name: "", client: "", location: "", status: "available", qty: "0", minStock: "0",
+  sku: "", name: "", client: "", location: "", status: "available", qty: "0", minStock: "0", productUnits: "0",
 }
 
 function ItemDialog({
@@ -69,6 +82,7 @@ function ItemDialog({
         sku: initial.sku, name: initial.name, client: initial.client,
         location: initial.location, status: initial.status as Status,
         qty: String(initial.qty), minStock: String(initial.minStock),
+        productUnits: String(initial.productUnits ?? 0),
       } : emptyItemForm)
     }
   }, [open, initial])
@@ -84,12 +98,14 @@ function ItemDialog({
           sku: form.sku, name: form.name, client: form.client,
           location: form.location, status: form.status,
           qty: Number(form.qty), minStock: Number(form.minStock),
+          productUnits: Number(form.productUnits),
         })
       } else {
         await api.inventory.createInventoryItem({
           tenantId, sku: form.sku, name: form.name, client: form.client,
           location: form.location, status: form.status,
           qty: Number(form.qty), minStock: Number(form.minStock),
+          productUnits: Number(form.productUnits),
         })
       }
       onSaved()
@@ -144,14 +160,18 @@ function ItemDialog({
               <input className={inputCls} value={form.location} onChange={e => set("location", e.target.value)} placeholder="e.g. R-01-A-1-1" />
             )}
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div className="space-y-1">
-              <label className="text-sm font-medium">Quantity</label>
+              <label className="text-sm font-medium">Pallets in Stock</label>
               <input className={inputCls} type="number" min={0} required value={form.qty} onChange={e => set("qty", e.target.value)} />
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium">Min Stock Level</label>
+              <label className="text-sm font-medium">Min Pallets</label>
               <input className={inputCls} type="number" min={0} required value={form.minStock} onChange={e => set("minStock", e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Product Units</label>
+              <input className={inputCls} type="number" min={0} required value={form.productUnits} onChange={e => set("productUnits", e.target.value)} />
             </div>
           </div>
           <DialogFooter>
@@ -262,10 +282,12 @@ export function InventoryManagement() {
   const [inventory, setInventory] = React.useState<InventoryItem[]>([])
   const [clients, setClients] = React.useState<Client[]>([])
   const [locations, setLocations] = React.useState<StorageLocation[]>([])
+  const [zones, setZones] = React.useState<WarehouseZone[]>([])
   const [loading, setLoading] = React.useState(true)
 
   const [search, setSearch] = React.useState("")
   const [statusFilter, setStatusFilter] = React.useState<Status | "">("")
+  const [clientFilter, setClientFilter] = React.useState("")
 
   const [addOpen, setAddOpen] = React.useState(false)
   const [editItem, setEditItem] = React.useState<InventoryItem | null>(null)
@@ -276,33 +298,52 @@ export function InventoryManagement() {
 
   const loadData = React.useCallback(async () => {
     setLoading(true)
-    const [inv, cl, locs] = await Promise.all([
+    const [inv, cl, locs, zns] = await Promise.all([
       api.inventory.getInventoryByTenant(tenantId),
       api.clients.getClientsByTenant(tenantId),
       api.storage.getAllStorageLocations(tenantId),
+      api.storage.getWarehouseZones(tenantId),
     ])
     setInventory(inv)
     setClients(cl)
     setLocations(locs)
+    setZones(zns)
     setLoading(false)
   }, [api, tenantId])
 
   React.useEffect(() => { loadData() }, [loadData])
 
+  // ── Zone lookups ─────────────────────────────────────────────────────────────
+  const zoneById = React.useMemo(
+    () => Object.fromEntries(zones.map(z => [z.id, z])),
+    [zones]
+  )
+  const locationCodeToZone = React.useMemo(() => {
+    const map: Record<string, WarehouseZone> = {}
+    for (const loc of locations) {
+      const zone = zoneById[loc.zoneId]
+      if (zone) map[loc.code] = zone
+    }
+    return map
+  }, [locations, zoneById])
+
   // KPIs
-  const totalSkus   = inventory.length
-  const totalUnits  = inventory.reduce((s, i) => s + i.qty, 0)
-  const lowStock    = inventory.filter(i => i.qty < i.minStock).length
-  const quarantined = inventory.filter(i => i.status === "quarantined").length
+  const totalSkus          = inventory.length
+  const totalPallets       = inventory.reduce((s, i) => s + i.qty, 0)
+  const totalProductUnits  = inventory.reduce((s, i) => s + i.productUnits, 0)
+  const lowStock           = inventory.filter(i => i.qty < i.minStock).length
+  const quarantined        = inventory.filter(i => i.status === "quarantined").length
 
   const filtered = React.useMemo(() => {
     const q = search.trim().toLowerCase()
     return inventory.filter(item => {
       const matchQ = !q || item.sku.toLowerCase().includes(q) || item.name.toLowerCase().includes(q) ||
                      item.client.toLowerCase().includes(q) || item.location.toLowerCase().includes(q)
-      return matchQ && (!statusFilter || item.status === statusFilter)
+      const matchStatus = !statusFilter || item.status === statusFilter
+      const matchClient = !clientFilter || item.client === clientFilter
+      return matchQ && matchStatus && matchClient
     })
-  }, [inventory, search, statusFilter])
+  }, [inventory, search, statusFilter, clientFilter])
 
   async function handleDelete() {
     if (!deleteItem) return
@@ -328,7 +369,7 @@ export function InventoryManagement() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900">Inventory Management</h2>
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Inventory Management</h2>
           <p className="text-slate-500 mt-1">Manage stock levels, locations, and client assignments.</p>
         </div>
         <div className="flex items-center space-x-2">
@@ -355,12 +396,12 @@ export function InventoryManagement() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Units</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Pallets</CardTitle>
             <Package className="h-4 w-4 text-slate-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalUnits.toLocaleString()}</div>
-            <p className="text-xs text-slate-500">Across all locations</p>
+            <div className="text-2xl font-bold">{totalPallets.toLocaleString()}</div>
+            <p className="text-xs text-slate-500">{totalProductUnits.toLocaleString()} product units on hand</p>
           </CardContent>
         </Card>
         <Card>
@@ -436,9 +477,17 @@ export function InventoryManagement() {
               <option value="">All statuses</option>
               {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
             </select>
-            {(search || statusFilter) && (
+            <select
+              className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+              value={clientFilter}
+              onChange={e => setClientFilter(e.target.value)}
+            >
+              <option value="">All clients</option>
+              {clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+            </select>
+            {(search || statusFilter || clientFilter) && (
               <Button variant="ghost" size="sm" className="h-9 px-2 text-slate-500"
-                onClick={() => { setSearch(""); setStatusFilter("") }}>
+                onClick={() => { setSearch(""); setStatusFilter(""); setClientFilter("") }}>
                 <Filter className="h-4 w-4 mr-1" /> Clear
               </Button>
             )}
@@ -458,8 +507,9 @@ export function InventoryManagement() {
                   <TableHead>Client</TableHead>
                   <TableHead>Location</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Min Stock</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
+                  <TableHead className="text-right">Min Pallets</TableHead>
+                  <TableHead className="text-right">Pallets in Stock</TableHead>
+                  <TableHead className="text-right">Product Units</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -472,9 +522,22 @@ export function InventoryManagement() {
                       <TableCell className="font-medium">{item.name}</TableCell>
                       <TableCell className="text-sm text-slate-600">{item.client}</TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="font-mono text-[10px]">
-                          {item.location || "—"}
-                        </Badge>
+                        {(() => {
+                          const zone = item.location ? locationCodeToZone[item.location] : undefined
+                          return (
+                            <div className="space-y-0.5">
+                              <Badge variant="outline" className="font-mono text-[10px]">
+                                {item.location || "—"}
+                              </Badge>
+                              {zone && (
+                                <div className="flex items-center gap-1">
+                                  <span className={`inline-block w-1.5 h-1.5 rounded-full ${ZONE_DOT[zone.color] ?? "bg-slate-400"}`} />
+                                  <span className="text-[10px] text-slate-400">{zone.name}</span>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })()}
                       </TableCell>
                       <TableCell>
                         <Badge variant={statusBadgeVariant(item.status as Status)} className="text-[11px]">
@@ -485,13 +548,20 @@ export function InventoryManagement() {
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           {isLow && <AlertTriangle className="h-4 w-4 text-amber-500" />}
-                          <span className={`font-bold text-sm ${isLow ? "text-amber-600" : "text-slate-900"}`}>
+                          <span className={`font-bold text-sm ${isLow ? "text-amber-600" : "text-slate-900 dark:text-slate-100"}`}>
                             {item.qty.toLocaleString()}
                           </span>
                         </div>
                       </TableCell>
+                      <TableCell className="text-right text-slate-700 dark:text-slate-300 text-sm font-medium">
+                        {item.productUnits.toLocaleString()}
+                      </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="View in Storage"
+                            onClick={() => navigateTo("storage")}>
+                            <Layers className="h-3.5 w-3.5 text-blue-500" />
+                          </Button>
                           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Transfer location"
                             onClick={() => { setTransferItem(item); setTransferOpen(true) }}>
                             <ArrowRightLeft className="h-3.5 w-3.5" />

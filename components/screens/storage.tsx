@@ -270,9 +270,17 @@ export function StorageManagement() {
   // ── Render ───────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Storage Management</h2>
-        <p className="text-slate-500 mt-1">Capacity planning, slotting, and tenant grouping.</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Storage Management</h2>
+          <p className="text-slate-500 mt-1">Capacity planning, slotting, and tenant grouping.</p>
+        </div>
+        <button
+          className="text-sm text-blue-600 hover:underline font-medium mt-1"
+          onClick={() => navigateTo("settings")}
+        >
+          Configure in Settings →
+        </button>
       </div>
 
       {/* KPI Cards */}
@@ -409,7 +417,8 @@ export function StorageManagement() {
                             <div className={`w-2 h-2 rounded-full ${getRackStatusColor(rack.usedCapacity, rack.totalCapacity)}`} />
                           </div>
                           <div className="text-2xl font-light tracking-tight mb-1">{pct}%</div>
-                          <div className="text-xs text-slate-500 mb-2">{rack.usedCapacity} / {rack.totalCapacity} pallets</div>
+                          <div className="text-xs text-slate-500 mb-1">{rack.usedCapacity} / {rack.totalCapacity} pallets</div>
+                          <div className="text-xs text-slate-400 mb-2">{rack.levelCount}L × {rack.bayCount}B</div>
                           {rack.preferredClientId && (
                             <Badge variant="secondary" className="text-[10px] w-full justify-center bg-slate-100 text-slate-600 hover:bg-slate-200">
                               {clientNameMap[rack.preferredClientId] ?? rack.preferredClientId}

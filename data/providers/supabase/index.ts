@@ -162,6 +162,7 @@ export const supabaseProvider: IDataProvider = {
         qty: row.qty ?? 0,
         minStock: row.min_stock ?? 0,
         client: row.client ?? "",
+        productUnits: row.product_units ?? 0,
       })) as InventoryItem[]
     },
     getAllInventory: async (): Promise<InventoryItem[]> => {
@@ -177,6 +178,7 @@ export const supabaseProvider: IDataProvider = {
         qty: row.qty ?? 0,
         minStock: row.min_stock ?? 0,
         client: row.client ?? "",
+        productUnits: row.product_units ?? 0,
       })) as InventoryItem[]
     },
     createInventoryItem: async (data) => {
@@ -191,11 +193,13 @@ export const supabaseProvider: IDataProvider = {
         qty: data.qty,
         min_stock: data.minStock,
         client: data.client,
+        product_units: data.productUnits ?? 0,
       })
       return {
         id: row.id, tenantId: row.tenant_id, sku: row.sku, name: row.name,
         location: row.location ?? "", status: row.status, qty: row.qty ?? 0,
         minStock: row.min_stock ?? 0, client: row.client ?? "",
+        productUnits: row.product_units ?? 0,
       } as InventoryItem
     },
     updateInventoryItem: async (id, updates) => {
@@ -207,6 +211,7 @@ export const supabaseProvider: IDataProvider = {
       if (updates.qty !== undefined) payload.qty = updates.qty
       if (updates.minStock !== undefined) payload.min_stock = updates.minStock
       if (updates.client !== undefined) payload.client = updates.client
+      if (updates.productUnits !== undefined) payload.product_units = updates.productUnits
       await supabasePatch("inventory_items", `id=eq.${id}`, payload)
     },
     deleteInventoryItem: async (id) => {

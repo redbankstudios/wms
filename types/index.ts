@@ -95,6 +95,7 @@ export interface InventoryItem {
   qty: number;
   minStock: number;
   client: string;
+  productUnits: number;
 }
 
 export interface Task {

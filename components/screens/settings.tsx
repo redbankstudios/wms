@@ -533,16 +533,97 @@ function WarehouseTab() {
   )
 }
 
+// ─── General Tab ───────────────────────────────────────────────────────────────
+
+function GeneralTab({ onGoToWarehouse }: { onGoToWarehouse: () => void }) {
+  const { selectedTenant } = useDemo()
+  const api = React.useMemo(() => getProvider(), [])
+  const [zones, setZones] = React.useState<WarehouseZone[]>([])
+
+  React.useEffect(() => {
+    api.storage.getWarehouseZones(selectedTenant.id).then(setZones)
+  }, [api, selectedTenant.id])
+
+  const totalCapacity = zones.reduce((sum, z) => sum + z.totalCapacity, 0)
+  const usedCapacity  = zones.reduce((sum, z) => sum + z.usedCapacity, 0)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Warehouse Profile</CardTitle>
+        <CardDescription>Update your facility&apos;s core information and operating hours.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium leading-none">Facility Name</label>
+            <input className={inputCls} defaultValue="Main Distribution Center" />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium leading-none">Facility Code</label>
+            <input className={inputCls} defaultValue="WH-01" />
+          </div>
+          <div className="space-y-2 col-span-2">
+            <label className="text-sm font-medium leading-none">Address</label>
+            <input className={inputCls} defaultValue="123 Logistics Way, Suite 100, Industrial Park, CA 90210" />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium leading-none">Timezone</label>
+            <select className={selectCls}>
+              <option>Pacific Time (PT)</option>
+              <option>Mountain Time (MT)</option>
+              <option>Central Time (CT)</option>
+              <option>Eastern Time (ET)</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium leading-none">
+              Total Capacity (pallet positions)
+            </label>
+            <input
+              type="number"
+              className={`${inputCls} bg-slate-50 text-slate-500 cursor-not-allowed`}
+              readOnly
+              value={totalCapacity || ""}
+              title="Computed from your warehouse zones"
+            />
+            <p className="text-xs text-slate-400">
+              Computed from {zones.length} zone{zones.length !== 1 ? "s" : ""} ({usedCapacity} used).{" "}
+              <button
+                type="button"
+                className="text-blue-600 hover:underline"
+                onClick={onGoToWarehouse}
+              >
+                Edit in Warehouse tab →
+              </button>
+            </p>
+          </div>
+        </div>
+      </CardContent>
+      <CardFooter className="border-t px-6 py-4">
+        <Button><Save className="mr-2 h-4 w-4" /> Save Changes</Button>
+      </CardFooter>
+    </Card>
+  )
+}
+
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
+function navigateTo(tab: string) {
+  window.history.pushState(null, "", `/?tab=${tab}`)
+  window.dispatchEvent(new PopStateEvent("popstate"))
+}
+
 export function Settings() {
+  const [activeTab, setActiveTab] = React.useState("general")
+
   return (
     <div className="space-y-6 max-w-5xl">
       <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-bold tracking-tight text-slate-900">Settings</h2>
+        <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Settings</h2>
       </div>
 
-      <Tabs defaultValue="general" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="mb-4">
           <TabsTrigger value="general"><Building className="h-4 w-4 mr-2" /> General</TabsTrigger>
           <TabsTrigger value="warehouse"><Layers className="h-4 w-4 mr-2" /> Warehouse</TabsTrigger>
@@ -553,47 +634,21 @@ export function Settings() {
         </TabsList>
 
         <TabsContent value="general">
-          <Card>
-            <CardHeader>
-              <CardTitle>Warehouse Profile</CardTitle>
-              <CardDescription>Update your facility&apos;s core information and operating hours.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium leading-none">Facility Name</label>
-                  <input className={inputCls} defaultValue="Main Distribution Center" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium leading-none">Facility Code</label>
-                  <input className={inputCls} defaultValue="MDC-01" />
-                </div>
-                <div className="space-y-2 col-span-2">
-                  <label className="text-sm font-medium leading-none">Address</label>
-                  <input className={inputCls} defaultValue="123 Logistics Way, Suite 100, Industrial Park, CA 90210" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium leading-none">Timezone</label>
-                  <select className={selectCls}>
-                    <option>Pacific Time (PT)</option>
-                    <option>Mountain Time (MT)</option>
-                    <option>Central Time (CT)</option>
-                    <option>Eastern Time (ET)</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium leading-none">Capacity (Pallet Positions)</label>
-                  <input type="number" className={inputCls} defaultValue="5000" />
-                </div>
-              </div>
-            </CardContent>
-            <CardFooter className="border-t px-6 py-4">
-              <Button><Save className="mr-2 h-4 w-4" /> Save Changes</Button>
-            </CardFooter>
-          </Card>
+          <GeneralTab onGoToWarehouse={() => setActiveTab("warehouse")} />
         </TabsContent>
 
         <TabsContent value="warehouse">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm text-slate-500">
+              Changes here are immediately reflected in{" "}
+              <button
+                className="text-blue-600 hover:underline font-medium"
+                onClick={() => navigateTo("storage")}
+              >
+                Storage Management →
+              </button>
+            </p>
+          </div>
           <WarehouseTab />
         </TabsContent>
 
