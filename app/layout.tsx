@@ -3,6 +3,7 @@ import './globals.css';
 import { DemoProvider } from '@/context/DemoContext';
 import { MessagesProvider } from '@/context/MessagesContext';
 import { ThemeProvider } from '@/context/ThemeContext';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 
 export const metadata: Metadata = {
   title: 'WMS & Delivery',
@@ -22,6 +23,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
             </MessagesProvider>
           </DemoProvider>
         </ThemeProvider>
+        <SpeedInsights />
       </body>
     </html>
   );
