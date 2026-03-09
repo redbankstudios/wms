@@ -272,17 +272,28 @@ export async function recordReceivingScan(
 
   if (error) throw new Error(`[receivingService] recordScan failed: ${error.message}`)
 
-  // ── Step 4: auto-create exception record for exception outcomes ──────────
+  // ── Step 4: auto-create exception record and link back to scan ──────────
   if (outcome === "exception" && exceptionCode) {
-    await createReceivingException(db, tenantId, sessionId, shipmentId, exceptionCode, {
+    const exResult = await createReceivingException(db, tenantId, sessionId, shipmentId, exceptionCode, {
       barcode,
       sku,
       expectedQty,
       receivedQty: resolvedBaseQty,
       notes: `Auto-raised from scan ${scanId}`,
-    }).catch((err) =>
+      scanId,
+    }).catch((err) => {
       console.error("[receivingService] Exception creation failed:", err)
-    )
+      return null
+    })
+
+    // Back-link the scan to its exception
+    if (exResult) {
+      await db
+        .from("receiving_scans")
+        .update({ exception_id: exResult.exceptionId })
+        .eq("id", scanId)
+        .then(null, (err: unknown) => console.error("[receivingService] Failed to link exception to scan:", err))
+    }
   }
 
   return { scanId, outcome, resolvedSku: sku, resolvedBaseQty, expectedQty, exceptionCode }
@@ -346,7 +357,7 @@ export async function finalizeReceivingSession(
   db: SupabaseClient,
   tenantId: string,
   sessionId: string,
-  actorId?: string | null
+  _actorId?: string | null
 ): Promise<ReceivingSessionSummary> {
   const { data: session, error: sessErr } = await db
     .from("receiving_sessions")
@@ -417,6 +428,7 @@ export async function createReceivingException(
     receivedQty?: number | null
     notes?: string | null
     createdByUserId?: string | null
+    scanId?: string | null
   } = {}
 ): Promise<{ exceptionId: string }> {
   const exceptionId = genId("EXC")
@@ -433,6 +445,7 @@ export async function createReceivingException(
     status: "open",
     notes: details.notes ?? null,
     created_by_user_id: details.createdByUserId ?? null,
+    scan_id: details.scanId ?? null,
   })
 
   if (error) throw new Error(`[receivingService] createException failed: ${error.message}`)

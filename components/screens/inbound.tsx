@@ -442,6 +442,273 @@ function LocationsTab({
 
 // ─── Receiving Tab ────────────────────────────────────────────────────────────
 
+const UOM_OPTIONS = ["each", "pack", "case", "pallet", "kg", "lb", "liter", "box"]
+
+interface ExceptionUI {
+  id: string
+  exceptionType: string
+  barcode: string | null
+  sku: string | null
+  expectedQty: number | null
+  receivedQty: number | null
+  status: string
+  scanId: string | null
+  scanMovementId: string | null
+}
+
+interface ProductOption {
+  id: string
+  sku: string
+}
+
+function exceptionTypeBadge(type: string) {
+  const map: Record<string, string> = {
+    unknown_barcode: "bg-purple-500",
+    sku_mismatch:    "bg-orange-500",
+    overage:         "bg-yellow-500",
+    shortage:        "bg-red-500",
+    damaged:         "bg-pink-500",
+    missing_item:    "bg-slate-500",
+  }
+  return (
+    <Badge className={`${map[type] ?? "bg-slate-400"} text-white text-xs`}>
+      {type.replace("_", " ")}
+    </Badge>
+  )
+}
+
+function ExceptionsPanel({
+  exceptions,
+  tenantId,
+  onResolved,
+}: {
+  exceptions: ExceptionUI[]
+  tenantId: string
+  onResolved: () => void
+}) {
+  const [expandedId, setExpandedId] = React.useState<string | null>(null)
+  const [products, setProducts] = React.useState<ProductOption[]>([])
+  const [productsLoaded, setProductsLoaded] = React.useState(false)
+  const [form, setForm] = React.useState({
+    productId: "", uomCode: "each", qtyPerUnit: 1, isPrimary: false,
+    repostScan: true, resolutionNotes: "",
+  })
+  const [resolving, setResolving] = React.useState(false)
+  const [resolveError, setResolveError] = React.useState<string | null>(null)
+
+  const openExceptions = exceptions.filter(e => e.status === "open")
+
+  const loadProducts = async () => {
+    if (productsLoaded) return
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/products?select=id,sku&tenant_id=eq.${tenantId}`,
+        { headers: { apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "" } }
+      )
+      const data = await res.json()
+      setProducts(Array.isArray(data) ? data : [])
+      setProductsLoaded(true)
+    } catch {
+      setProducts([])
+    }
+  }
+
+  const expand = async (id: string, type: string) => {
+    if (expandedId === id) { setExpandedId(null); return }
+    setExpandedId(id)
+    setResolveError(null)
+    if (type === "unknown_barcode") loadProducts()
+  }
+
+  const submitResolveBarcode = async (exId: string) => {
+    if (!form.productId) { setResolveError("Select a product."); return }
+    if (form.qtyPerUnit < 1) { setResolveError("Qty per unit must be ≥ 1."); return }
+    setResolving(true)
+    setResolveError(null)
+    try {
+      const res = await fetch(`/api/receiving/exceptions/${exId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId, action: "resolve_barcode",
+          productId: form.productId, uomCode: form.uomCode,
+          qtyPerUnit: form.qtyPerUnit, isPrimary: form.isPrimary,
+          repostScan: form.repostScan, resolutionNotes: form.resolutionNotes,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? "Failed to resolve")
+      setExpandedId(null)
+      setForm({ productId: "", uomCode: "each", qtyPerUnit: 1, isPrimary: false, repostScan: true, resolutionNotes: "" })
+      onResolved()
+    } catch (err: unknown) {
+      setResolveError(err instanceof Error ? err.message : "Unknown error")
+    } finally {
+      setResolving(false)
+    }
+  }
+
+  const submitGenericAction = async (exId: string, action: "approve" | "reject" | "resolve") => {
+    setResolving(true)
+    setResolveError(null)
+    try {
+      const res = await fetch(`/api/receiving/exceptions/${exId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId, action,
+          resolutionAction: action === "resolve" ? "dismissed" : undefined,
+          notes: form.resolutionNotes || undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? "Failed")
+      setExpandedId(null)
+      onResolved()
+    } catch (err: unknown) {
+      setResolveError(err instanceof Error ? err.message : "Unknown error")
+    } finally {
+      setResolving(false)
+    }
+  }
+
+  if (openExceptions.length === 0) return null
+
+  return (
+    <div className="mt-4 space-y-2">
+      <p className="text-xs font-semibold text-red-600 flex items-center gap-1.5">
+        <AlertTriangle className="h-3.5 w-3.5" />
+        {openExceptions.length} open exception{openExceptions.length !== 1 ? "s" : ""}
+      </p>
+
+      {openExceptions.map(ex => (
+        <div key={ex.id} className="border border-red-200 rounded-lg overflow-hidden">
+          {/* Row header */}
+          <button
+            onClick={() => expand(ex.id, ex.exceptionType)}
+            className="w-full flex items-center justify-between px-3 py-2.5 bg-red-50 hover:bg-red-100 transition-colors text-left"
+          >
+            <div className="flex items-center gap-2">
+              {exceptionTypeBadge(ex.exceptionType)}
+              {ex.barcode && <span className="font-mono text-xs text-slate-600">{ex.barcode}</span>}
+              {ex.sku && <span className="text-xs text-slate-500">SKU: {ex.sku}</span>}
+            </div>
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              {ex.expectedQty !== null && <span>Exp: {ex.expectedQty}</span>}
+              {ex.receivedQty !== null && <span>Got: {ex.receivedQty}</span>}
+              <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expandedId === ex.id ? "rotate-90" : ""}`} />
+            </div>
+          </button>
+
+          {/* Resolution panel */}
+          {expandedId === ex.id && (
+            <div className="px-3 py-3 bg-white space-y-3 border-t border-red-100">
+              {ex.exceptionType === "unknown_barcode" ? (
+                <>
+                  <p className="text-xs text-slate-500">
+                    Barcode <span className="font-mono font-medium">{ex.barcode}</span> is not registered.
+                    Select the product it belongs to and save it for future scans.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs text-slate-400 font-medium">Product</label>
+                      <select
+                        className="mt-0.5 w-full border border-slate-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        value={form.productId}
+                        onChange={e => setForm(f => ({ ...f, productId: e.target.value }))}
+                      >
+                        <option value="">Select product…</option>
+                        {products.map(p => (
+                          <option key={p.id} value={p.id}>{p.sku} ({p.id})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400 font-medium">UOM</label>
+                      <select
+                        className="mt-0.5 w-full border border-slate-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        value={form.uomCode}
+                        onChange={e => setForm(f => ({ ...f, uomCode: e.target.value }))}
+                      >
+                        {UOM_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1">
+                      <label className="text-xs text-slate-400 font-medium">Qty per unit</label>
+                      <input
+                        type="number" min={1}
+                        className="mt-0.5 w-full border border-slate-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        value={form.qtyPerUnit}
+                        onChange={e => setForm(f => ({ ...f, qtyPerUnit: Math.max(1, Number(e.target.value)) }))}
+                      />
+                    </div>
+                    <label className="flex items-center gap-1.5 text-xs text-slate-600 mt-4">
+                      <input type="checkbox" checked={form.repostScan} onChange={e => setForm(f => ({ ...f, repostScan: e.target.checked }))} />
+                      Re-post scan to ledger
+                    </label>
+                    <label className="flex items-center gap-1.5 text-xs text-slate-600 mt-4">
+                      <input type="checkbox" checked={form.isPrimary} onChange={e => setForm(f => ({ ...f, isPrimary: e.target.checked }))} />
+                      Primary barcode
+                    </label>
+                  </div>
+                  <input
+                    className="w-full border border-slate-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    placeholder="Resolution notes (optional)"
+                    value={form.resolutionNotes}
+                    onChange={e => setForm(f => ({ ...f, resolutionNotes: e.target.value }))}
+                  />
+                  {resolveError && <p className="text-xs text-red-500">{resolveError}</p>}
+                  <Button
+                    onClick={() => submitResolveBarcode(ex.id)}
+                    disabled={resolving}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8"
+                  >
+                    {resolving ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
+                    Save Barcode & Resolve
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs text-slate-500">
+                    {ex.exceptionType === "shortage" && `Expected ${ex.expectedQty ?? "?"} units — only ${ex.receivedQty ?? 0} received.`}
+                    {ex.exceptionType === "overage"  && `Received ${ex.receivedQty ?? "?"} units — expected only ${ex.expectedQty ?? "?"}.`}
+                    {ex.exceptionType === "sku_mismatch" && `SKU ${ex.sku ?? ex.barcode} not in shipment manifest.`}
+                    {ex.exceptionType === "damaged"  && `Item reported as damaged.`}
+                    {ex.exceptionType === "missing_item" && `Expected item not received.`}
+                  </p>
+                  <input
+                    className="w-full border border-slate-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    placeholder="Supervisor notes (optional)"
+                    value={form.resolutionNotes}
+                    onChange={e => setForm(f => ({ ...f, resolutionNotes: e.target.value }))}
+                  />
+                  {resolveError && <p className="text-xs text-red-500">{resolveError}</p>}
+                  <div className="flex gap-2">
+                    <Button onClick={() => submitGenericAction(ex.id, "approve")} disabled={resolving}
+                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs h-8">
+                      Approve
+                    </Button>
+                    <Button onClick={() => submitGenericAction(ex.id, "resolve")} disabled={resolving}
+                      className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8">
+                      Dismiss
+                    </Button>
+                    <Button onClick={() => submitGenericAction(ex.id, "reject")} disabled={resolving}
+                      variant="outline" className="flex-1 text-xs h-8 border-red-300 text-red-600 hover:bg-red-50">
+                      Reject
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 type ScanOutcome = "matched" | "unmatched" | "exception" | "posted"
 
 interface ScanRecord {
@@ -480,12 +747,37 @@ function ReceivingTab({
   const [scanning, setScanning] = React.useState(false)
   const [scans, setScans] = React.useState<ScanRecord[]>([])
   const [scanError, setScanError] = React.useState<string | null>(null)
+  const [exceptions, setExceptions] = React.useState<ExceptionUI[]>([])
 
   const [summary, setSummary] = React.useState<{
     totalScans: number
     postedScans: number
     exceptionCount: number
   } | null>(null)
+
+  const loadExceptions = React.useCallback(async () => {
+    if (!tenantId) return
+    try {
+      const res = await fetch(
+        `/api/receiving/exceptions?tenantId=${tenantId}&shipmentId=${shipment.id}&status=open`
+      )
+      if (!res.ok) return
+      const data = await res.json()
+      setExceptions((data.exceptions ?? []).map((e: Record<string, unknown>) => ({
+        id: e.id as string,
+        exceptionType: e.exceptionType as string,
+        barcode: (e.barcode as string | null) ?? null,
+        sku: (e.sku as string | null) ?? null,
+        expectedQty: (e.expectedQty as number | null) ?? null,
+        receivedQty: (e.receivedQty as number | null) ?? null,
+        status: e.status as string,
+        scanId: (e.scanId as string | null) ?? null,
+        scanMovementId: null,
+      })))
+    } catch {
+      // non-fatal
+    }
+  }, [tenantId, shipment.id])
 
   const openSession = async () => {
     setOpening(true)
@@ -500,6 +792,7 @@ function ReceivingTab({
       if (!res.ok) throw new Error(data.error ?? "Failed to open session")
       setSessionId(data.sessionId)
       setSessionStatus("open")
+      await loadExceptions()
     } catch (err: unknown) {
       setScanError(err instanceof Error ? err.message : "Unknown error")
     } finally {
@@ -541,6 +834,7 @@ function ReceivingTab({
       setScans(prev => [record, ...prev])
       setBarcode("")
       setScannedQty(1)
+      if (data.outcome === "exception") await loadExceptions()
     } catch (err: unknown) {
       setScanError(err instanceof Error ? err.message : "Unknown error")
     } finally {
@@ -613,6 +907,7 @@ function ReceivingTab({
           </div>
         </div>
         {scans.length > 0 && <ScanList scans={scans} />}
+        <ExceptionsPanel exceptions={exceptions} tenantId={tenantId} onResolved={loadExceptions} />
       </div>
     )
   }
@@ -672,6 +967,13 @@ function ReceivingTab({
       ) : (
         <ScanList scans={scans} />
       )}
+
+      {/* Exceptions panel */}
+      <ExceptionsPanel
+        exceptions={exceptions}
+        tenantId={tenantId}
+        onResolved={loadExceptions}
+      />
     </div>
   )
 }
