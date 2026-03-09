@@ -20,6 +20,9 @@ import {
   CheckCircle2,
   AlertTriangle,
   Zap,
+  ScanLine,
+  Send,
+  RefreshCw,
 } from "lucide-react"
 import { Client, InboundShipment, InboundPallet, InboundBox, InboundBoxItem, Rack, WarehouseZone } from "@/types"
 import { getProvider } from "@/data"
@@ -27,7 +30,7 @@ import { useDemo } from "@/context/DemoContext"
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type DetailTab = "overview" | "pallets" | "locations"
+type DetailTab = "overview" | "pallets" | "locations" | "receiving"
 
 interface RackSuggestion {
   rack: Rack
@@ -437,6 +440,274 @@ function LocationsTab({
   )
 }
 
+// ─── Receiving Tab ────────────────────────────────────────────────────────────
+
+type ScanOutcome = "matched" | "unmatched" | "exception" | "posted"
+
+interface ScanRecord {
+  scanId: string
+  barcode: string
+  sku: string | null
+  scannedQty: number
+  resolvedBaseQty: number | null
+  expectedQty: number | null
+  outcome: ScanOutcome
+  exceptionCode: string | null
+  movementId: string | null
+}
+
+function outcomeBadge(outcome: ScanOutcome, exCode: string | null) {
+  if (outcome === "posted")    return <Badge className="bg-emerald-500 text-white text-xs">Posted</Badge>
+  if (outcome === "matched")   return <Badge className="bg-blue-500 text-white text-xs">Matched</Badge>
+  if (outcome === "exception") return <Badge className="bg-red-500 text-white text-xs">{exCode ?? "Exception"}</Badge>
+  return <Badge variant="outline" className="text-xs">Unmatched</Badge>
+}
+
+function ReceivingTab({
+  shipment,
+  tenantId,
+}: {
+  shipment: InboundShipment
+  tenantId: string
+}) {
+  const [sessionId, setSessionId] = React.useState<string | null>(null)
+  const [sessionStatus, setSessionStatus] = React.useState<string | null>(null)
+  const [opening, setOpening] = React.useState(false)
+  const [finalizing, setFinalizing] = React.useState(false)
+
+  const [barcode, setBarcode] = React.useState("")
+  const [scannedQty, setScannedQty] = React.useState(1)
+  const [scanning, setScanning] = React.useState(false)
+  const [scans, setScans] = React.useState<ScanRecord[]>([])
+  const [scanError, setScanError] = React.useState<string | null>(null)
+
+  const [summary, setSummary] = React.useState<{
+    totalScans: number
+    postedScans: number
+    exceptionCount: number
+  } | null>(null)
+
+  const openSession = async () => {
+    setOpening(true)
+    setScanError(null)
+    try {
+      const res = await fetch("/api/receiving/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId, shipmentId: shipment.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? "Failed to open session")
+      setSessionId(data.sessionId)
+      setSessionStatus("open")
+    } catch (err: unknown) {
+      setScanError(err instanceof Error ? err.message : "Unknown error")
+    } finally {
+      setOpening(false)
+    }
+  }
+
+  const submitScan = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!sessionId || !barcode.trim()) return
+    setScanning(true)
+    setScanError(null)
+    try {
+      const res = await fetch("/api/receiving/scans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId,
+          sessionId,
+          shipmentId: shipment.id,
+          barcode: barcode.trim(),
+          scannedQty,
+          postToLedger: true,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? "Scan failed")
+      const record: ScanRecord = {
+        scanId: data.scanId,
+        barcode: barcode.trim(),
+        sku: data.resolvedSku,
+        scannedQty,
+        resolvedBaseQty: data.resolvedBaseQty,
+        expectedQty: data.expectedQty,
+        outcome: data.outcome,
+        exceptionCode: data.exceptionCode,
+        movementId: data.movementId ?? null,
+      }
+      setScans(prev => [record, ...prev])
+      setBarcode("")
+      setScannedQty(1)
+    } catch (err: unknown) {
+      setScanError(err instanceof Error ? err.message : "Unknown error")
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  const finalize = async () => {
+    if (!sessionId) return
+    setFinalizing(true)
+    setScanError(null)
+    try {
+      const res = await fetch(`/api/receiving/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId, action: "finalize" }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? "Finalize failed")
+      setSessionStatus("completed")
+      setSummary({
+        totalScans: data.summary.totalScans,
+        postedScans: data.summary.postedScans,
+        exceptionCount: data.summary.exceptionCount,
+      })
+    } catch (err: unknown) {
+      setScanError(err instanceof Error ? err.message : "Unknown error")
+    } finally {
+      setFinalizing(false)
+    }
+  }
+
+  const postedCount = scans.filter(s => s.outcome === "posted").length
+  const exceptionCount = scans.filter(s => s.outcome === "exception").length
+
+  // Session not yet opened
+  if (!sessionId) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-4">
+        <ScanLine className="h-12 w-12 text-slate-300" />
+        <div className="text-center">
+          <p className="font-medium text-slate-700 dark:text-slate-200">No active receiving session</p>
+          <p className="text-xs text-slate-400 mt-1">Open a session to start scanning items against this shipment</p>
+        </div>
+        {scanError && <p className="text-xs text-red-500">{scanError}</p>}
+        <Button
+          onClick={openSession}
+          disabled={opening}
+          className="bg-slate-900 hover:bg-slate-800 text-white mt-2"
+        >
+          {opening ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Opening…</> : <><ScanLine className="mr-2 h-4 w-4" /> Start Receiving</>}
+        </Button>
+      </div>
+    )
+  }
+
+  // Session completed — show summary
+  if (sessionStatus === "completed") {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+          <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-emerald-800">Session completed</p>
+            {summary && (
+              <p className="text-xs text-emerald-600 mt-0.5">
+                {summary.postedScans} of {summary.totalScans} scans posted · {summary.exceptionCount} open exception{summary.exceptionCount !== 1 ? "s" : ""}
+              </p>
+            )}
+          </div>
+        </div>
+        {scans.length > 0 && <ScanList scans={scans} />}
+      </div>
+    )
+  }
+
+  // Active session
+  return (
+    <div className="space-y-4">
+      {/* Session status bar */}
+      <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-200 dark:bg-slate-700 dark:border-slate-600">
+        <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          Session active &nbsp;·&nbsp;
+          <span className="font-medium text-emerald-700">{postedCount} posted</span>
+          {exceptionCount > 0 && <span className="text-red-500 ml-1">&nbsp;·&nbsp;{exceptionCount} exception{exceptionCount !== 1 ? "s" : ""}</span>}
+        </div>
+        <Button
+          variant="outline"
+          className="text-xs h-7 px-3"
+          onClick={finalize}
+          disabled={finalizing}
+        >
+          {finalizing ? <Loader2 className="h-3 w-3 animate-spin" /> : "Finalize"}
+        </Button>
+      </div>
+
+      {/* Scan input */}
+      <form onSubmit={submitScan} className="flex gap-2">
+        <input
+          className="flex-1 border border-slate-200 dark:border-slate-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400 dark:bg-slate-700 dark:text-slate-100"
+          placeholder="Barcode or scan…"
+          value={barcode}
+          onChange={e => setBarcode(e.target.value)}
+          autoFocus
+        />
+        <input
+          type="number"
+          min={1}
+          className="w-16 border border-slate-200 dark:border-slate-600 rounded-md px-2 py-2 text-sm text-center focus:outline-none focus:ring-1 focus:ring-slate-400 dark:bg-slate-700 dark:text-slate-100"
+          value={scannedQty}
+          onChange={e => setScannedQty(Math.max(1, Number(e.target.value)))}
+          title="Qty"
+        />
+        <Button type="submit" disabled={scanning || !barcode.trim()} className="bg-slate-900 hover:bg-slate-800 text-white px-3">
+          {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+        </Button>
+      </form>
+
+      {scanError && (
+        <p className="text-xs text-red-500 flex items-center gap-1">
+          <AlertTriangle className="h-3 w-3" />{scanError}
+        </p>
+      )}
+
+      {/* Scan results */}
+      {scans.length === 0 ? (
+        <p className="text-xs text-slate-400 italic text-center py-6">No scans yet — scan a barcode above</p>
+      ) : (
+        <ScanList scans={scans} />
+      )}
+    </div>
+  )
+}
+
+function ScanList({ scans }: { scans: ScanRecord[] }) {
+  return (
+    <div className="space-y-1.5">
+      {scans.map(scan => (
+        <div
+          key={scan.scanId}
+          className={`flex items-start justify-between p-2.5 rounded-lg border text-xs ${
+            scan.outcome === "posted"    ? "border-emerald-200 bg-emerald-50"
+            : scan.outcome === "matched" ? "border-blue-200 bg-blue-50"
+            : scan.outcome === "exception" ? "border-red-200 bg-red-50"
+            : "border-slate-200 bg-slate-50"
+          }`}
+        >
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-slate-600">{scan.barcode}</span>
+              {outcomeBadge(scan.outcome, scan.exceptionCode)}
+            </div>
+            <div className="flex items-center gap-3 text-slate-500">
+              {scan.sku && <span>SKU: <span className="font-medium">{scan.sku}</span></span>}
+              <span>Qty: {scan.scannedQty}{scan.resolvedBaseQty !== null && scan.resolvedBaseQty !== scan.scannedQty ? ` → ${scan.resolvedBaseQty} base` : ""}</span>
+              {scan.expectedQty !== null && <span>Expected: {scan.expectedQty}</span>}
+            </div>
+            {scan.movementId && <span className="font-mono text-emerald-600">{scan.movementId}</span>}
+          </div>
+          <RefreshCw className="h-3 w-3 text-slate-300 mt-0.5 shrink-0" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function InboundManagement() {
@@ -642,7 +913,7 @@ export function InboundManagement() {
 
             {/* Tabs */}
             <div className="flex border-b border-slate-200 dark:border-slate-700">
-              {(["overview", "pallets", "locations"] as const).map(tab => (
+              {(["overview", "pallets", "locations", "receiving"] as const).map(tab => (
                 <button
                   key={tab}
                   onClick={() => setDetailTab(tab)}
@@ -735,6 +1006,11 @@ export function InboundManagement() {
                     confirming={confirming}
                   />
                 )
+              )}
+
+              {/* Receiving tab */}
+              {detailTab === "receiving" && (
+                <ReceivingTab shipment={selected} tenantId={selectedTenant.id} />
               )}
             </div>
           </div>

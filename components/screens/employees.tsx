@@ -1024,7 +1024,7 @@ export function EmployeesManagement() {
         assignee:   u.employeeName,
         scheduledDate: today,
         assignedAt: now,
-      })
+      }, tenantId)
     ))
     setTasks(prev => prev.map(t => {
       const u = updates.find(x => x.taskId === t.id)

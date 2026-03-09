@@ -136,7 +136,7 @@ export function OrderManagement() {
   async function advanceOrder(orderId: string, currentStatus: string) {
     const nextStatus = NEXT_STATUS[currentStatus]
     if (!nextStatus) return
-    await api.orders.updateOrderStatus(orderId, nextStatus)
+    await api.orders.updateOrderStatus(orderId, nextStatus, selectedTenant.id)
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: nextStatus } : o))
     if (nextStatus === "shipped") {
       const shipments = await api.shipments.getShipmentsByOrder(orderId)

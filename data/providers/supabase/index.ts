@@ -1,6 +1,9 @@
 import { IDataProvider, RouteException } from "@/data/providers/IDataProvider"
 import { mockProvider } from "@/data/providers/mock"
 import { supabaseDelete, supabaseInsert, supabasePatch, supabaseSelect } from "@/lib/supabaseRest"
+// Phase 1: trusted backend mutation client — routes critical writes through API handlers
+// that enforce auth + tenant + role + payload validation server-side.
+import { apiMutate } from "@/lib/api/client"
 import {
   Client,
   DeliveryZone,
@@ -130,18 +133,21 @@ export const supabaseProvider: IDataProvider = {
         allocatedQty: row.status === "allocated" ? (row.quantity ?? 0) : 0,
       })) as OrderLine[]
     },
-    updateOrderStatus: async (orderId: string, status: Order["status"]): Promise<void> => {
-      await supabasePatch("orders", `id=eq.${orderId}`, { status })
+    updateOrderStatus: async (orderId: string, status: Order["status"], tenantId: string): Promise<void> => {
+      await apiMutate(`/api/orders/${orderId}`, "PATCH", { tenantId, status })
     },
     createOrder: async (data: Omit<Order, "id">): Promise<Order> => {
-      const row = await supabaseInsert<any>("orders", {
-        tenant_id: data.tenantId,
-        customer: data.client,
-        items: data.items,
+      // Phase 1: routed through trusted API handler
+      const result = await apiMutate<{ order: any }>("/api/orders", "POST", {
+        tenantId: data.tenantId,
+        client: data.client,
         status: data.status,
         destination: data.destination,
+        items: data.items,
+        deliveryLat: (data as any).deliveryLat,
+        deliveryLng: (data as any).deliveryLng,
       })
-      return { ...data, id: row?.id ?? `ORD-${Date.now()}` }
+      return { ...data, id: result.order?.id ?? `ORD-${Date.now()}` }
     },
   },
 
@@ -182,19 +188,21 @@ export const supabaseProvider: IDataProvider = {
       })) as InventoryItem[]
     },
     createInventoryItem: async (data) => {
+      // Phase 1: routed through trusted API handler — enforces auth + tenant + role server-side
       const id = `INV-${Date.now()}`
-      const row = await supabaseInsert<any>("inventory_items", {
+      const result = await apiMutate<{ item: any }>("/api/inventory", "POST", {
         id,
-        tenant_id: data.tenantId,
+        tenantId: data.tenantId,
         sku: data.sku,
         name: data.name,
         location: data.location,
         status: data.status,
         qty: data.qty,
-        min_stock: data.minStock,
+        minStock: data.minStock,
         client: data.client,
-        product_units: data.productUnits ?? 0,
+        productUnits: data.productUnits ?? 0,
       })
+      const row = result.item
       return {
         id: row.id, tenantId: row.tenant_id, sku: row.sku, name: row.name,
         location: row.location ?? "", status: row.status, qty: row.qty ?? 0,
@@ -202,20 +210,20 @@ export const supabaseProvider: IDataProvider = {
         productUnits: row.product_units ?? 0,
       } as InventoryItem
     },
-    updateInventoryItem: async (id, updates) => {
-      const payload: any = {}
-      if (updates.sku !== undefined) payload.sku = updates.sku
-      if (updates.name !== undefined) payload.name = updates.name
-      if (updates.location !== undefined) payload.location = updates.location
-      if (updates.status !== undefined) payload.status = updates.status
-      if (updates.qty !== undefined) payload.qty = updates.qty
-      if (updates.minStock !== undefined) payload.min_stock = updates.minStock
-      if (updates.client !== undefined) payload.client = updates.client
-      if (updates.productUnits !== undefined) payload.product_units = updates.productUnits
-      await supabasePatch("inventory_items", `id=eq.${id}`, payload)
+    updateInventoryItem: async (id, updates, tenantId) => {
+      const body: Record<string, unknown> = { id, tenantId }
+      if (updates.sku !== undefined) body.sku = updates.sku
+      if (updates.name !== undefined) body.name = updates.name
+      if (updates.location !== undefined) body.location = updates.location
+      if (updates.status !== undefined) body.status = updates.status
+      if (updates.qty !== undefined) body.qty = updates.qty
+      if (updates.minStock !== undefined) body.minStock = updates.minStock
+      if (updates.client !== undefined) body.client = updates.client
+      if (updates.productUnits !== undefined) body.productUnits = updates.productUnits
+      await apiMutate("/api/inventory", "PATCH", body)
     },
-    deleteInventoryItem: async (id) => {
-      await supabaseDelete("inventory_items", `id=eq.${id}`)
+    deleteInventoryItem: async (id, tenantId) => {
+      await apiMutate("/api/inventory", "DELETE", { id, tenantId })
     },
   },
 
@@ -268,24 +276,25 @@ export const supabaseProvider: IDataProvider = {
       })) as Task[]
     },
     createTask: async (task: Omit<Task, "id">): Promise<Task> => {
+      // Phase 1: routed through trusted API handler — enforces auth + tenant + role
       const id = `TSK-${Date.now()}`
-      const row = await supabaseInsert<any>("tasks", {
+      const result = await apiMutate<{ task: any }>("/api/tasks", "POST", {
         id,
-        tenant_id: task.tenantId,
+        tenantId: task.tenantId,
         type: task.type,
         status: task.status,
         assignee: task.assignee,
-        assignee_id: task.assigneeId ?? null,
-        order_id: task.orderId ?? null,
+        assigneeId: task.assigneeId ?? null,
+        orderId: task.orderId ?? null,
         location: task.location,
         items: task.items,
         priority: task.priority,
-        scheduled_date: task.scheduledDate ?? null,
-        assigned_at: task.assigneeId ? new Date().toISOString() : null,
-        estimated_packages: task.estimatedPackages ?? null,
-        estimated_effort: task.estimatedEffort ?? null,
+        scheduledDate: task.scheduledDate ?? null,
+        estimatedPackages: task.estimatedPackages ?? null,
+        estimatedEffort: task.estimatedEffort ?? null,
         zone: task.zone ?? null,
       })
+      const row = result.task
       return {
         id: row.id,
         tenantId: row.tenant_id,
@@ -305,30 +314,27 @@ export const supabaseProvider: IDataProvider = {
         createdAt: row.created_at ?? undefined,
       } as Task
     },
-    updateTaskStatus: async (taskId: string, status: Task["status"]): Promise<void> => {
-      await supabasePatch("tasks", `id=eq.${taskId}`, { status })
+    updateTaskStatus: async (taskId: string, status: Task["status"], tenantId: string): Promise<void> => {
+      await apiMutate(`/api/tasks/${taskId}`, "PATCH", { tenantId, status })
     },
-    updateTask: async (taskId: string, updates: Partial<Omit<Task, "id">>): Promise<void> => {
-      const payload: Record<string, unknown> = {}
-      if (updates.status !== undefined) payload.status = updates.status
-      if (updates.assignee !== undefined) payload.assignee = updates.assignee
-      if (updates.assigneeId !== undefined) {
-        payload.assignee_id = updates.assigneeId ?? null
-        if (updates.assigneeId) payload.assigned_at = new Date().toISOString()
-      }
-      if (updates.orderId !== undefined) payload.order_id = updates.orderId ?? null
-      if (updates.location !== undefined) payload.location = updates.location
-      if (updates.items !== undefined) payload.items = updates.items
-      if (updates.priority !== undefined) payload.priority = updates.priority
-      if (updates.type !== undefined) payload.type = updates.type
-      if (updates.scheduledDate !== undefined) payload.scheduled_date = updates.scheduledDate ?? null
-      if (updates.estimatedPackages !== undefined) payload.estimated_packages = updates.estimatedPackages ?? null
-      if (updates.estimatedEffort !== undefined) payload.estimated_effort = updates.estimatedEffort ?? null
-      if (updates.zone !== undefined) payload.zone = updates.zone ?? null
-      await supabasePatch("tasks", `id=eq.${taskId}`, payload)
+    updateTask: async (taskId: string, updates: Partial<Omit<Task, "id">>, tenantId: string): Promise<void> => {
+      const body: Record<string, unknown> = { tenantId }
+      if (updates.status !== undefined) body.status = updates.status
+      if (updates.assignee !== undefined) body.assignee = updates.assignee
+      if (updates.assigneeId !== undefined) body.assigneeId = updates.assigneeId ?? null
+      if (updates.orderId !== undefined) body.orderId = updates.orderId ?? null
+      if (updates.location !== undefined) body.location = updates.location
+      if (updates.items !== undefined) body.items = updates.items
+      if (updates.priority !== undefined) body.priority = updates.priority
+      if (updates.type !== undefined) body.type = updates.type
+      if (updates.scheduledDate !== undefined) body.scheduledDate = updates.scheduledDate ?? null
+      if (updates.estimatedPackages !== undefined) body.estimatedPackages = updates.estimatedPackages ?? null
+      if (updates.estimatedEffort !== undefined) body.estimatedEffort = updates.estimatedEffort ?? null
+      if (updates.zone !== undefined) body.zone = updates.zone ?? null
+      await apiMutate(`/api/tasks/${taskId}`, "PATCH", body)
     },
-    deleteTask: async (taskId: string): Promise<void> => {
-      await supabaseDelete("tasks", `id=eq.${taskId}`)
+    deleteTask: async (taskId: string, tenantId: string): Promise<void> => {
+      await apiMutate(`/api/tasks/${taskId}`, "DELETE", { tenantId })
     },
   },
 
@@ -402,11 +408,15 @@ export const supabaseProvider: IDataProvider = {
       })) as RouteException[]
     },
     createRouteStop: async (stop: Omit<RouteStop, "id"> & { routeId: string }): Promise<RouteStop> => {
+      // Phase 1: routed through trusted API handler — enforces auth + tenant + role
+      // Note: tenantId must be set on the stop object by the caller (dispatch-queue screen).
       const id = `STP-${Date.now()}`
-      const row = await supabaseInsert<any>("route_stops", {
+      const tenantId = (stop as any).tenantId ?? ""
+      const result = await apiMutate<{ stop: any }>("/api/routes/stops", "POST", {
         id,
-        route_id: stop.routeId,
-        order_id: stop.orderId ?? null,
+        tenantId,
+        routeId: stop.routeId,
+        orderId: stop.orderId ?? null,
         customer: stop.customer,
         address: stop.address,
         time: stop.time ?? "",
@@ -415,8 +425,9 @@ export const supabaseProvider: IDataProvider = {
         notes: stop.notes ?? null,
         lat: stop.lat ?? null,
         lng: stop.lng ?? null,
-        weight_kg: stop.weightKg ?? null,
+        weightKg: stop.weightKg ?? null,
       })
+      const row = result.stop
       return {
         id: row.id,
         orderId: row.order_id ?? undefined,
@@ -431,13 +442,13 @@ export const supabaseProvider: IDataProvider = {
         weightKg: row.weight_kg ?? undefined,
       } as RouteStop
     },
-    updateRouteStop: async (stopId: string, updates: Partial<RouteStop>): Promise<void> => {
-      const payload: Record<string, unknown> = {}
-      if (updates.status !== undefined) payload.status = updates.status
-      if (updates.notes !== undefined) payload.notes = updates.notes
-      if (updates.packages !== undefined) payload.packages = updates.packages
-      if (updates.weightKg !== undefined) payload.weight_kg = updates.weightKg
-      await supabasePatch("route_stops", `id=eq.${stopId}`, payload)
+    updateRouteStop: async (stopId: string, updates: Partial<RouteStop>, tenantId: string): Promise<void> => {
+      const body: Record<string, unknown> = { tenantId }
+      if (updates.status !== undefined) body.status = updates.status
+      if (updates.notes !== undefined) body.notes = updates.notes
+      if (updates.packages !== undefined) body.packages = updates.packages
+      if (updates.weightKg !== undefined) body.weightKg = updates.weightKg
+      await apiMutate(`/api/routes/stops/${stopId}`, "PATCH", body)
     },
   },
 
@@ -475,8 +486,8 @@ export const supabaseProvider: IDataProvider = {
         disposition: row.disposition ?? "-",
       })) as Return[]
     },
-    updateReturnDisposition: async (returnId: string, status: string, disposition: string): Promise<void> => {
-      await supabasePatch("returns", `id=eq.${returnId}`, { status, disposition })
+    updateReturnDisposition: async (returnId: string, status: string, disposition: string, tenantId: string): Promise<void> => {
+      await apiMutate(`/api/returns/${returnId}`, "PATCH", { tenantId, status, disposition })
     },
     getReturnLines: async (returnId: string): Promise<ReturnItem[]> => {
       const data = await supabaseSelect<any>(
@@ -1263,21 +1274,23 @@ export const supabaseProvider: IDataProvider = {
       })) as InboundBoxItem[]
     },
     createInbound: async (payload: Omit<InboundShipment, "id" | "createdAt">): Promise<InboundShipment> => {
+      // Phase 1: routed through trusted API handler — enforces auth + tenant + role
       const id = `INB-${Date.now()}`
-      const row = await supabaseInsert<any>("inbound_shipments", {
+      const result = await apiMutate<{ shipment: any }>("/api/inbound", "POST", {
         id,
-        tenant_id: payload.tenantId,
-        client_id: payload.clientId,
-        reference_number: payload.referenceNumber,
+        tenantId: payload.tenantId,
+        clientId: payload.clientId,
+        referenceNumber: payload.referenceNumber,
         carrier: payload.carrier,
         status: payload.status,
-        arrival_date: payload.arrivalDate,
-        arrival_window_start: payload.arrivalWindowStart,
-        arrival_window_end: payload.arrivalWindowEnd,
-        dock_door: payload.dockDoor,
+        arrivalDate: payload.arrivalDate,
+        arrivalWindowStart: payload.arrivalWindowStart,
+        arrivalWindowEnd: payload.arrivalWindowEnd,
+        dockDoor: payload.dockDoor,
         notes: payload.notes,
-        total_pallets: payload.totalPallets,
+        totalPallets: payload.totalPallets,
       })
+      const row = result.shipment
       return {
         id: row.id,
         tenantId: row.tenant_id,

@@ -2,6 +2,11 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 export async function supabaseSelect<T>(table: string, query: string = ""): Promise<T[]> {
+  if (!SUPABASE_URL || !ANON_KEY) {
+    throw new Error(
+      `[supabaseRest] Missing env vars: NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL ?? "undefined"}, NEXT_PUBLIC_SUPABASE_ANON_KEY=${ANON_KEY ? "(set)" : "undefined"}. Check .env.local and restart the dev server.`
+    )
+  }
   const url = `${SUPABASE_URL}/rest/v1/${table}${query ? `?${query}` : ""}`
   const res = await fetch(url, {
     headers: {

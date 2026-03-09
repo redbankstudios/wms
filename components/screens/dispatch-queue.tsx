@@ -359,14 +359,14 @@ export function DispatchQueue() {
       })
     }
     // Update order status to shipped and reflect locally
-    await api.orders.updateOrderStatus(order.id, "shipped")
+    await api.orders.updateOrderStatus(order.id, "shipped", tenantId ?? "")
     setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: "shipped" as const } : o))
     setDispatchedDriverIds(prev => ({ ...prev, [order.id]: driverId }))
   }
 
   // ── Undo a dispatch (return to pending) ────────────────────────────────────
   async function undispatchOrder(order: Order) {
-    await api.orders.updateOrderStatus(order.id, "packed")
+    await api.orders.updateOrderStatus(order.id, "packed", tenantId ?? "")
     setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: "packed" as const } : o))
     setDispatchedDriverIds(prev => { const r = { ...prev }; delete r[order.id]; return r })
   }

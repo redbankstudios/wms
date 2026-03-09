@@ -168,9 +168,9 @@ export function MobileDriverApp() {
   const handleCompleteStop = async () => {
     if (activeStop) {
       try {
-        await api.routes.updateRouteStop(activeStop.id, { status: "completed" })
+        await api.routes.updateRouteStop(activeStop.id, { status: "completed" }, tenantId ?? "")
         if (activeStop.orderId) {
-          await api.orders.updateOrderStatus(activeStop.orderId, "delivered")
+          await api.orders.updateOrderStatus(activeStop.orderId, "delivered", tenantId ?? "")
         }
         setStops(prev => prev.map(s => s.id === activeStop.id ? { ...s, status: "completed" as const } : s))
       } catch {

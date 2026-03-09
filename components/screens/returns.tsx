@@ -292,7 +292,7 @@ export function ReturnsDashboard() {
                                           onClick={async () => {
                                             if (!disposition) return
                                             const dispLabel = disposition === "rtv" ? "Return to Vendor" : disposition.charAt(0).toUpperCase() + disposition.slice(1)
-                                            await api.returns.updateReturnDisposition(ret.id, "completed", dispLabel)
+                                            await api.returns.updateReturnDisposition(ret.id, "completed", dispLabel, selectedTenant.id)
                                             setReturns(prev => prev.map(r => r.id === ret.id ? { ...r, status: "completed" as const, disposition: dispLabel } : r))
                                             setExpandedReturn(null)
                                           }}

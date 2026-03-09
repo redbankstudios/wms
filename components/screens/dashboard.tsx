@@ -42,33 +42,38 @@ export function OperationsDashboard() {
   }, [])
 
   React.useEffect(() => {
+    let cancelled = false
+
     async function loadData() {
       setLoading(true)
+      const safe = <T,>(p: Promise<T>, fallback: T): Promise<T> => p.catch(() => fallback)
       const [o, r, s, racks, suggestions, fragmented, inboundShipments, exceptions] = await Promise.all([
-        api.orders.getOrdersByTenant(tenantId),
-        api.routes.getRoutesByTenant(tenantId),
-        api.storage.getDashboardStorageSummary(tenantId),
-        api.storage.getTopRacksByOccupancy(tenantId, 6),
-        api.storage.getPutawaySuggestions(tenantId),
-        api.storage.getTopFragmentedClients(tenantId, 2),
-        api.inbound.getInboundByTenant(tenantId),
-        api.routes.getExceptions(tenantId),
+        safe(api.orders.getOrdersByTenant(tenantId), []),
+        safe(api.routes.getRoutesByTenant(tenantId), []),
+        safe(api.storage.getDashboardStorageSummary(tenantId), { totalCapacity: 0, usedCapacity: 0, occupancyPercent: 0, nearCapacityRacks: 0 }),
+        safe(api.storage.getTopRacksByOccupancy(tenantId, 6), []),
+        safe(api.storage.getPutawaySuggestions(tenantId), []),
+        safe(api.storage.getTopFragmentedClients(tenantId, 2), []),
+        safe(api.inbound.getInboundByTenant(tenantId), []),
+        safe(api.routes.getExceptions(tenantId), []),
       ])
+      if (cancelled) return
       setOrders(o)
       setRoutes(r)
       setStorageSummary(s)
       setTopRacks(racks)
       setPutawaySuggestions(suggestions)
       setFragmentationAlerts(fragmented)
-      const activeShipments = inboundShipments.filter((sh: any) => sh.status !== "complete")
+      const activeShipments = (inboundShipments as any[]).filter((sh: any) => sh.status !== "complete")
       const pallets = activeShipments.reduce((sum: number, sh: any) => sum + (sh.totalPallets ?? 0), 0)
       setIncomingPallets(pallets)
       setActiveInboundCount(activeShipments.length)
-      const openExc = exceptions.filter((e: any) => e.status !== "resolved").length
+      const openExc = (exceptions as any[]).filter((e: any) => e.status !== "resolved").length
       setOpenExceptions(openExc)
       setLoading(false)
     }
     loadData()
+    return () => { cancelled = true }
   }, [api, tenantId])
 
   if (loading) {

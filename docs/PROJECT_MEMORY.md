@@ -1,94 +1,71 @@
-# Project Memory
+# Project Memory: WMS & Delivery (Discovery Snapshot)
 
-## System summary
-This repository is a Next.js App Router application for a multi-tenant Warehouse Management System (WMS) plus last-mile delivery operations. The UI runs mostly as a single in-app shell (`app/page.tsx`) with role-gated modules (inventory, inbound, tasks, orders, dispatch, driver, returns, billing, reports), while data access is abstracted behind a provider interface that can point to Supabase REST (`NEXT_PUBLIC_DATA_PROVIDER=supabase`) or in-memory/mock services.
+## Scope of this pass
+Read-only architectural discovery across frontend, data access layer, Supabase schema/migrations, and operational flows.
 
-## Tech stack
-- Frontend: Next.js 15, React 19, TypeScript, Tailwind CSS 4, Radix UI, Recharts.
-- Backend access: Supabase PostgREST via custom fetch wrappers (`lib/supabaseRest.ts`).
-- Database: Supabase Postgres (`public` schema; SQL migrations in `supabase/migrations`).
-- Auth/session: `UNKNOWN` for app-level auth enforcement. Supabase auth is enabled in `supabase/config.toml`, but app shell currently uses `DemoContext` role switching.
-- Maps: Mapbox (`mapbox-gl`, `react-map-gl`) in dispatch/driver/map screens.
-- Hosting/deployment: Next standalone output (`next.config.ts`). Vercel config file not found (`UNKNOWN` actual hosting config).
+## Platform identity
+- App type: single Next.js 15 web app (React 19, TypeScript, Tailwind).
+- Pattern: client-rendered operational console with role/tenant switching in UI.
+- Runtime data backend: Supabase PostgREST (`/rest/v1/*`) called directly from browser.
+- Provider mode: `NEXT_PUBLIC_DATA_PROVIDER=supabase` (fallback `mock` provider exists).
 
-## Runtime environments
-- Local:
-  - Next app (`npm run dev`), Supabase local stack configured in `supabase/config.toml`.
-  - Data source selected by `NEXT_PUBLIC_DATA_PROVIDER` (`data/index.ts`).
-- Production:
-  - Requires public Supabase URL/key and Mapbox token.
-  - `eslint.ignoreDuringBuilds: true` in `next.config.ts` means lint does not block production build.
+## Core architectural facts
+- No internal backend API routes (`app/api` absent).
+- No server-side domain service layer in Next.js app.
+- Data contract centralized in [`data/providers/IDataProvider.ts`](../data/providers/IDataProvider.ts).
+- Primary implementation in [`data/providers/supabase/index.ts`](../data/providers/supabase/index.ts).
+- Supabase REST helper in [`lib/supabaseRest.ts`](../lib/supabaseRest.ts) uses anon key in client requests.
 
-## Key domains/entities
-- Tenant: `public.tenants`
-- Order + lines: `public.orders`, `public.order_lines`
-- Inventory: `public.inventory_items`
-- Tasks: `public.tasks`
-- Routing: `public.routes`, `public.route_stops`, `public.route_exceptions`
-- Drivers/Zones: `public.drivers`, `public.delivery_zones`
-- Vehicles: `public.vehicles`
-- Returns: `public.returns`, `public.return_lines`
-- Inbound receiving: `public.inbound_shipments`, `public.inbound_pallets`, `public.inbound_boxes`, `public.inbound_box_items`
-- Storage topology: `public.warehouse_zones`, `public.racks`, `public.storage_locations`, `public.tenant_storage_summaries`, `public.putaway_suggestions`
-- Billing/events/comms: `public.invoices`, `public.payments`, `public.events`, `public.notifications`, `public.driver_messages`
-- Master data: `public.clients`, `public.products`, `public.locations`, `public.users`, `public.shipments`
+## Data model themes
+- Tenant-scoped entities use `tenant_id` columns broadly.
+- Warehouse model exists at `warehouse_zones -> racks -> storage_locations`.
+- Inbound model exists at `inbound_shipments -> inbound_pallets -> inbound_boxes -> inbound_box_items`.
+- Inventory is snapshot-based (`inventory_items`) with no immutable stock movement ledger.
+- Products support one optional barcode (`products.barcode`), no barcode alias table.
+- Tasks are generic work records and are used to represent receiving/putaway/pick/pack/return work.
 
-## Core user roles and permissions
-Defined in `config/roleNavigation.ts` and enforced in UI in `app/page.tsx`.
-- Roles: `platform_owner`, `business_owner`, `warehouse_manager`, `shipping_manager`, `warehouse_employee`, `packer`, `driver`, `driver_dispatcher`, `b2b_client`, `end_customer`.
-- Enforcement method today: client-side role check against `NAV_ITEMS` before rendering tab content.
-- Server-side/DB policy enforcement: `UNKNOWN` in app code; SQL migrations currently disable RLS on all created tables.
+## Fulfillment and receiving posture
+- Order lifecycle status exists (`pending -> allocated -> picking -> packed -> shipped -> delivered`).
+- Dispatch queue can auto-assign drivers and mark orders shipped.
+- Driver mobile flow can mark route stops complete and set linked orders delivered.
+- Inbound screen supports shipment browsing and task creation for receive/putaway.
+- Receiving confirmation currently updates inbound status in local UI state only (not persisted).
 
-## Critical workflows
-- Receiving/inbound:
-  - Screen: `components/screens/inbound.tsx`
-  - Data: inbound shipments/pallets/boxes/items + storage zones/racks + clients
-  - Mutation: creates inbound record and creates follow-up tasks.
-- Putaway/storage:
-  - Screens: `components/screens/storage.tsx`, `components/screens/settings.tsx`
-  - Data: zones/racks/locations/summaries/suggestions
-  - Mutation: zone/rack CRUD in settings.
-- Picking/packing/tasks:
-  - Screen: `components/screens/tasks.tsx`
-  - Data: tasks + users
-  - Mutation: create/edit/assign/status/delete task.
-- Order lifecycle:
-  - Screen: `components/screens/orders.tsx`
-  - Data: orders + order lines + clients + shipments
-  - Mutation: create order, update order status.
-- Dispatch & route assignment:
-  - Screen: `components/screens/dispatch-queue.tsx`
-  - Data: orders/drivers/vehicles/zones/routes/stops
-  - Mutation: create route stops, update order status to packed/shipped.
-- Driver execution + POD:
-  - Screen: `components/screens/mobile-driver.tsx`
-  - Data: routes + stops
-  - Mutation: update route stop status; updates linked order to delivered when `orderId` exists.
-- Returns:
-  - Screen: `components/screens/returns.tsx`
-  - Data: returns + return lines
-  - Mutation: update disposition/status.
+## Security and tenancy posture (critical)
+- UI role gating exists via `selectedRole` and `NAV_ITEMS` only.
+- No app-level authentication middleware/session enforcement found.
+- Supabase Auth is enabled in config, but app does not integrate Supabase Auth SDK for login/session.
+- Migrations explicitly disable RLS on all core tables.
+- Tenant isolation is implemented mainly by client-side query filters (`tenant_id=eq.*`) and context selection.
 
-## Important directories
-- `app/`: Next routes (`/` shell app and `/pricing` marketing page).
-- `components/screens/`: business modules rendered by tab id.
-- `components/layout/`: sidebar/topbar navigation and global search.
-- `data/providers/`: provider abstraction (`mock` and `supabase`).
-- `lib/`: REST client (`supabaseRest.ts`) and helpers (`autoAssign.ts`).
-- `services/`: mock/in-memory service implementations.
-- `context/`: app-wide state providers (`DemoContext`, theme, messages).
-- `config/`: role-based nav definitions.
-- `supabase/migrations/`: SQL schema + seed/evolution scripts.
-- `mock/`: static demo data used by mock provider/services.
+## Persisted vs simulated behavior
+Persisted examples:
+- CRUD for inventory/tasks/users/drivers/zones/racks/warehouse zones.
+- Route stop creation and updates.
+- Order status updates.
+- Driver message replies/read markers.
+- Inbound shipment create.
 
-## Top 10 "where to change X" pointers
-1. Navigation tabs and role access: `config/roleNavigation.ts`.
-2. Tab-to-screen rendering logic: `app/page.tsx` (`renderContent` switch).
-3. Global header search behavior/indexing: `components/layout/topbar.tsx`.
-4. Provider selection (Supabase vs mock): `data/index.ts`.
-5. Supabase table/API mapping and CRUD calls: `data/providers/supabase/index.ts`.
-6. Low-level Supabase REST request behavior/headers/errors: `lib/supabaseRest.ts`.
-7. Pricing page plans/calculator/recommendations: `app/pricing/page.tsx`.
-8. Dispatch assignment logic + route stop creation: `components/screens/dispatch-queue.tsx` and `lib/autoAssign.ts`.
-9. Driver delivery completion behavior (route stop + order delivered): `components/screens/mobile-driver.tsx`.
-10. Database schema/tenant columns/indexes/RLS state: `supabase/migrations/*.sql`.
+Simulated or partially simulated examples:
+- Mobile worker barcode scan and task completion flow.
+- B2B outbound “auto-sync to inbound” message (UI-only).
+- Some dispatcher actions (UI state updates without persistent route-state updates).
+- Tenant suspend/activate in tenant screen (local state only).
+
+## Integrations found
+- Mapbox: geocoding + map rendering.
+- Supabase: Postgres + PostgREST as primary data API.
+- Vercel Analytics / Speed Insights.
+- Shopify/QuickBooks/Samsara shown as integration UI placeholders in Settings and marketing/pricing copy.
+
+## High-confidence blockers for Smart Receiving
+- No universal barcode model (single barcode field only).
+- No pack/case/UOM conversion schema in transactional product/inventory core.
+- No unknown barcode learning workflow/table.
+- No receiving execution journal (scan-by-scan or movement-by-movement event store).
+- Weak tenant/auth enforcement (RLS disabled + no app auth enforcement).
+
+## UNKNOWN areas
+- UNKNOWN: remote Supabase environment may have policies not represented in local migrations.
+- UNKNOWN: external systems may write directly to `events`/inbound tables outside this repository.
+- UNKNOWN: intended production auth strategy beyond current demo role selector.

@@ -56,7 +56,7 @@ export const mockProvider: IDataProvider = {
     getOrdersByTenant: orderService.getOrdersByTenant,
     getAllOrders: orderService.getAllOrders,
     getOrderLines: orderService.getOrderLines,
-    updateOrderStatus: async (_orderId: string, _status: any) => {
+    updateOrderStatus: async (_orderId: string, _status: any, _tenantId: string) => {
       // mock: optimistic update handled in UI
     },
     createOrder: async (data: any) => {
@@ -67,16 +67,19 @@ export const mockProvider: IDataProvider = {
     getInventoryByTenant: inventoryService.getInventoryByTenant,
     getAllInventory: inventoryService.getAllInventory,
     createInventoryItem: async (_data: any) => { throw new Error("Not implemented in mock") },
-    updateInventoryItem: async (_id: string, _updates: any) => {},
-    deleteInventoryItem: async (_id: string) => {},
+    updateInventoryItem: async (_id: string, _updates: any, _tenantId: string) => {},
+    deleteInventoryItem: async (_id: string, _tenantId: string) => {},
   },
   tasks: {
     getTasksByTenant: taskService.getTasksByTenant.bind(taskService),
     getAllTasks: taskService.getAllTasks.bind(taskService),
     createTask: taskService.createTask.bind(taskService),
-    updateTaskStatus: taskService.updateTaskStatus.bind(taskService),
-    updateTask: taskService.updateTask.bind(taskService),
-    deleteTask: taskService.deleteTask.bind(taskService),
+    updateTaskStatus: async (taskId: string, status: any, _tenantId: string) =>
+      taskService.updateTaskStatus(taskId, status),
+    updateTask: async (taskId: string, updates: any, _tenantId: string) =>
+      taskService.updateTask(taskId, updates),
+    deleteTask: async (taskId: string, _tenantId: string) =>
+      taskService.deleteTask(taskId),
   },
   routes: {
     getRoutesByTenant: routeService.getRoutesByTenant,
@@ -110,7 +113,7 @@ export const mockProvider: IDataProvider = {
       mockStopStore = [...mockStopStore, newStop]
       return newStop
     },
-    updateRouteStop: async (_stopId: string, _updates: Partial<RouteStop>): Promise<void> => {
+    updateRouteStop: async (_stopId: string, _updates: Partial<RouteStop>, _tenantId: string): Promise<void> => {
       // mock: optimistic update handled in UI
     },
   },
@@ -118,7 +121,7 @@ export const mockProvider: IDataProvider = {
     getReturnsByTenant: returnsService.getReturnsByTenant,
     getAllReturns: returnsService.getAllReturns,
     getReturnLines: returnsService.getReturnLines,
-    updateReturnDisposition: async (_returnId: string, _status: string, _disposition: string) => {
+    updateReturnDisposition: async (_returnId: string, _status: string, _disposition: string, _tenantId: string) => {
       // mock: optimistic update handled in UI
     },
   },

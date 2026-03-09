@@ -692,7 +692,7 @@ export function TaskCenter() {
 
   async function moveTask(taskId: string, newStatus: Task["status"]) {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t))
-    try { await api.tasks.updateTaskStatus(taskId, newStatus) } catch { /* demo */ }
+    try { await api.tasks.updateTaskStatus(taskId, newStatus, selectedTenant.id) } catch { /* demo */ }
   }
 
   async function handleSaveTask(taskData: Omit<Task, "id">) {
@@ -710,7 +710,7 @@ export function TaskCenter() {
         zone: taskData.zone,
       }
       setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, ...updates } : t))
-      try { await api.tasks.updateTask(editingTask.id, updates) } catch { /* demo */ }
+      try { await api.tasks.updateTask(editingTask.id, updates, selectedTenant.id) } catch { /* demo */ }
     } else {
       const newTask = await api.tasks.createTask(taskData)
       setTasks(prev => [newTask, ...prev])
@@ -720,12 +720,12 @@ export function TaskCenter() {
   async function handleAssign(taskId: string, userId: string, userName: string) {
     const updates = { assigneeId: userId || null, assignee: userName }
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...updates } : t))
-    try { await api.tasks.updateTask(taskId, updates) } catch { /* demo */ }
+    try { await api.tasks.updateTask(taskId, updates, selectedTenant.id) } catch { /* demo */ }
   }
 
   async function handleDelete(taskId: string) {
     setTasks(prev => prev.filter(t => t.id !== taskId))
-    try { await api.tasks.deleteTask(taskId) } catch { /* demo */ }
+    try { await api.tasks.deleteTask(taskId, selectedTenant.id) } catch { /* demo */ }
   }
 
   const addLog = React.useCallback((message: string) => {
@@ -744,7 +744,7 @@ export function TaskCenter() {
     try {
       const taskMap = Object.fromEntries(tasks.map(t => [t.id, t]))
       const empMap  = Object.fromEntries(warehouseUsers.map(e => [e.id, e]))
-      await applyAssignments(preview.proposed, api.tasks.updateTask, taskMap, empMap)
+      await applyAssignments(preview.proposed, (id, u) => api.tasks.updateTask(id, u, selectedTenant.id), taskMap, empMap)
 
       // Update local state
       const updates: Record<string, { assigneeId: string; assignee: string; scheduledDate: string }> = {}
@@ -775,7 +775,7 @@ export function TaskCenter() {
     }
     const updates = { assigneeId: empId, assignee: empName, scheduledDate: today }
     setTasks(prev => prev.map(t => safe.includes(t.id) ? { ...t, ...updates } : t))
-    await Promise.all(safe.map(id => api.tasks.updateTask(id, updates).catch(() => {})))
+    await Promise.all(safe.map(id => api.tasks.updateTask(id, updates, selectedTenant.id).catch(() => {})))
     const msg = skipped > 0
       ? `Assigned ${safe.length} task${safe.length !== 1 ? "s" : ""} to ${empName} · ${skipped} skipped (not pending)`
       : `Assigned ${safe.length} task${safe.length !== 1 ? "s" : ""} to ${empName}`
@@ -793,7 +793,7 @@ export function TaskCenter() {
     }
     const updates = { assigneeId: null, assignee: "Unassigned" }
     setTasks(prev => prev.map(t => safe.includes(t.id) ? { ...t, ...updates } : t))
-    await Promise.all(safe.map(id => api.tasks.updateTask(id, updates).catch(() => {})))
+    await Promise.all(safe.map(id => api.tasks.updateTask(id, updates, selectedTenant.id).catch(() => {})))
     const msg = skipped > 0
       ? `Unassigned ${safe.length} task${safe.length !== 1 ? "s" : ""} · ${skipped} skipped (not pending)`
       : `Unassigned ${safe.length} pending task${safe.length !== 1 ? "s" : ""}`

@@ -37,16 +37,17 @@ import {
 // ── End-to-end flow steps ────────────────────────────────────────────────────
 
 const FLOW_STEPS = [
-  "Inbound",
-  "Storage",
-  "Inventory",
+  "Inbound Shipment",
+  "Receiving Session",
+  "Scan & Reconcile",
+  "Putaway",
+  "Inventory Ledger",
   "Orders",
   "Tasks",
   "Dispatch Queue",
-  "Routes",
-  "Driver App",
-  "Tracking",
-  "Client Reports",
+  "Routes & Driver App",
+  "Tracking Portal",
+  "Reports",
   "Billing",
 ]
 
@@ -99,39 +100,45 @@ const ROLES = [
 
 const PAGE_GROUPS = [
   {
-    title: "Platform & Admin",
-    description: "Tools for platform operators to manage tenants, monitor the business, and handle billing.",
+    title: "Business Owner Control Center",
+    description: "The core controls you use to run your tenant, your team, and your financial visibility.",
     icon: Building2,
     pages: [
       {
-        label: "Tenants",
+        label: "Tenants (Platform View)",
         icon: Building2,
-        summary: "Manage every client account on the platform — plans (Basic / Pro / Enterprise), onboarding status, storage consumption, and order volume. Suspend, activate, or impersonate a tenant to troubleshoot their view directly.",
-        connectsTo: "Tenant selection drives which data appears across all warehouse and delivery modules.",
+        summary: "For platform-level operators only. Manage client accounts, subscription tiers, onboarding status, and account health. Business owners typically stay inside their own tenant, but this view is available for multi-tenant operators.",
+        connectsTo: "Controls tenant-level context across every module in the app shell.",
       },
       {
         label: "Settings",
         icon: Shield,
-        summary: "Configure platform-wide operational defaults including warehouse zones, fee structures, and notification rules.",
-        connectsTo: "Settings apply globally across the warehouse, dispatch, and client portal experiences.",
+        summary: "Configure your warehouse structure, operational defaults, client mappings, and notification rules. This is where business owners standardize how work runs across inbound, tasks, dispatch, and billing.",
+        connectsTo: "Applies shared operating rules across warehouse, delivery, and client portal workflows.",
+      },
+      {
+        label: "Employees",
+        icon: Users,
+        summary: "Manage your internal team roster with role-based permissions. Add managers, warehouse employees, packers, dispatchers, and drivers so each person sees only the screens required for their job.",
+        connectsTo: "Role assignments drive sidebar navigation, API write permissions, and operational accountability.",
       },
       {
         label: "Business Reports",
         icon: BarChart3,
-        summary: "Full analytics dashboard for platform operators and business owners. Includes KPI cards (orders shipped MTD, on-time delivery %, return rate, storage utilization, avg pick time, gross margin), a storage utilization area chart with period selector (7D / 30D / 90D / 12M), employee productivity by pick and pack counts, a route performance donut chart, monthly return rate trends, inventory aging by age bucket, and per-client profitability with margin bars.",
-        connectsTo: "Aggregates activity from every operational module — orders, tasks, routes, and inventory.",
+        summary: "Executive KPI view for business owners: shipped volume, on-time delivery, return rate, storage utilization, productivity, and margin trends. Use it to monitor SLA performance and client profitability from one screen.",
+        connectsTo: "Aggregates operational signals from orders, tasks, returns, inventory, and routes.",
       },
       {
         label: "Order Reports",
         icon: BarChart3,
-        summary: "Dedicated reporting view for order performance. Visualizes daily order volume and order trends with selectable windows (7D / 30D) and vendor-level filtering, so teams can analyze throughput by client account and spot demand shifts quickly.",
-        connectsTo: "Pulls live order data from Supabase and links directly to fulfillment and client performance analysis.",
+        summary: "Dedicated order analytics by date range and client/vendor filter. Use this view to track throughput, spot spikes, and validate whether staffing and fleet capacity match demand.",
+        connectsTo: "Pulls order activity and links directly to fulfillment and dispatch planning decisions.",
       },
       {
         label: "Client Billing",
         icon: CreditCard,
-        summary: "Tenant-level invoice management for platform operators. View current month usage broken down by service category (storage, pick & pack, routing fees) with visual progress bars. Review the full invoice history, download PDFs, manage payment methods, and process outstanding balances with one click.",
-        connectsTo: "Pulls billing events from orders processed, storage occupied, and routes dispatched.",
+        summary: "Invoice center for subscription and usage transparency. Review current-month usage, invoice history, payment methods, and outstanding balances so both your team and your clients have clear financial visibility.",
+        connectsTo: "Uses usage signals from storage, fulfillment, and delivery operations.",
       },
     ],
   },
@@ -149,8 +156,8 @@ const PAGE_GROUPS = [
       {
         label: "Inbound",
         icon: ArrowDownToLine,
-        summary: "Receive and process inbound shipments end-to-end. Capture ASN details, validate line items against purchase orders, record quantities received, and generate putaway tasks with zone and rack assignment suggestions based on available storage capacity.",
-        connectsTo: "Feeds storage utilization and makes received items available in inventory.",
+        summary: "Run scan-driven receiving sessions from shipment arrival to final reconciliation. Operators can scan barcodes (or enter SKU manually), compare received vs expected quantities, auto-raise overage/shortage/mismatch exceptions, and post matched quantities to inventory.",
+        connectsTo: "Feeds putaway tasks, inventory availability, receiving exception queues, and inbound audit history.",
       },
       {
         label: "Storage",
@@ -161,8 +168,8 @@ const PAGE_GROUPS = [
       {
         label: "Inventory",
         icon: Package,
-        summary: "Real-time stock ledger by SKU and location. Monitor on-hand quantities, view reorder status flags, filter by product category, and see exact storage location details down to rack and bin. Shared visibility with B2B clients through the client portal.",
-        connectsTo: "Drives order allocation, reorder triggers, and client-facing inventory views.",
+        summary: "Real-time stock by SKU and location with adjustment and transfer controls. Behind the scenes, quantity changes are now captured through an immutable movement ledger foundation with derived balances for stronger traceability.",
+        connectsTo: "Drives order allocation, replenishment decisions, client inventory visibility, and inventory auditability.",
       },
       {
         label: "Orders",
@@ -324,86 +331,124 @@ const VALUE_POINTS = [
 
 const RECENT_UPDATES = [
   {
-    title: "Tenant foundation established",
+    title: "Secure write boundary + audit logging completed",
     description:
-      "The core tenant data model is now in place, including plan tier, storage capacity, billing cycle, and account status so platform owners can manage multi-tenant operations with clarity.",
+      "All critical mutations now run through trusted API routes with auth, tenant, and role checks before writes. Audit events are now logged for key operational updates.",
   },
   {
-    title: "End-customer portal expanded",
+    title: "Inventory ledger foundation added",
     description:
-      "The customer-facing tracking portal now supports delivery preferences, return requests, and post-delivery ratings, alongside a simple messaging thread for delivery questions.",
+      "Inventory movements and derived balances are implemented to support immutable quantity tracking and improved reconciliation.",
   },
   {
-    title: "Role-based access flows tightened",
+    title: "Barcode + UOM conversion model implemented",
     description:
-      "Every role sees only the modules relevant to their responsibilities, ensuring operational focus for warehouse, dispatch, and client teams.",
+      "Products can now support multiple barcodes and per-product unit conversions (each, case, pallet, pack) to power scan-accurate receiving flows.",
+  },
+  {
+    title: "Smart Receiving core implemented",
+    description:
+      "Receiving sessions, scan outcomes, and auto-exception handling (unknown barcode, mismatch, overage, shortage) are now built and connected to inventory posting paths.",
   },
 ]
 
-// ── Build plan snapshot ──────────────────────────────────────────────────────
+// ── Capability snapshot ──────────────────────────────────────────────────────
 
 const BUILD_PLAN = [
   {
-    title: "Foundation",
+    title: "Security foundation",
     description:
-      "Role-based navigation, tenant + user modeling, and standardized data interfaces.",
+      "Authentication infrastructure, trusted mutation API routes, and audit logging are complete.",
   },
   {
-    title: "Warehouse Ops Core",
+    title: "Inventory control foundation",
     description:
-      "Inbound receiving, inventory accuracy, storage planning, orders, and task execution.",
+      "Inventory movement ledger and balance tables are implemented to improve stock traceability.",
   },
   {
-    title: "Dispatch & Delivery",
+    title: "Receiving intelligence",
     description:
-      "Fleet management, live dispatcher console, route optimization, dispatch queue, and driver app.",
+      "Smart Receiving sessions, scan posting, and exception rules are implemented for inbound accuracy.",
   },
   {
-    title: "Client Experience",
+    title: "Barcode and UOM model",
     description:
-      "B2B client portal, end-customer tracking, and transparent billing views.",
+      "Multi-barcode product support and conversion logic are ready for scan-driven operations.",
   },
   {
-    title: "Analytics & Reliability",
+    title: "Operational platform coverage",
     description:
-      "Operational dashboards, alerts, audit trails, and performance foundations.",
+      "Warehouse, dispatch, client portal, reports, and billing modules remain connected as one workflow.",
   },
 ]
 
 const BUILD_PLAN_NEXT_STEPS = [
-  "Keep the Platform Intro page aligned with live capabilities.",
-  "Validate Supabase schemas against UI needs.",
-  "Define strict RBAC + tenant scoping rules.",
-  "Identify modules that require realtime updates.",
+  "Apply staged DB migrations in production for ledger, barcode/UOM, and smart receiving tables.",
+  "Load each client's product barcodes and case/pallet conversion rules.",
+  "Train receiving teams on scan workflows and exception review procedures.",
+  "Use Business Reports + Billing monthly to review margin and service-level performance.",
 ]
 
 // ── Workflow detail ───────────────────────────────────────────────────────────
 
 const WORKFLOW_DETAIL = [
   {
-    title: "Receive and organize inventory",
+    title: "Start receiving with scan accuracy",
     description:
-      "Inbound shipments are captured, validated against purchase orders, and staged. Putaway tasks are generated automatically with rack assignment suggestions to maximize space utilization.",
+      "Open a receiving session per inbound shipment, scan barcodes (or enter SKU), and reconcile against expected manifest quantities. Exceptions are raised instantly when something is unknown, mismatched, or over expected.",
   },
   {
-    title: "Maintain real-time stock accuracy",
+    title: "Post validated stock into inventory",
     description:
-      "Inventory updates with every pick, pack, receipt, and return. Available stock is always current, preventing overselling and reducing backorders for you and your clients.",
+      "Matched scans can post directly into inventory movement tracking, where quantity and location changes are recorded and balances are updated for reliable stock visibility.",
   },
   {
-    title: "Fulfill orders with less friction",
+    title: "Run fulfillment from one queue",
     description:
-      "Orders generate pick/pack tasks automatically. The dispatch queue highlights what is packed and ready — shipping teams never chase order status across systems.",
+      "Orders feed pick and pack tasks, completed packs land in dispatch queue, and dispatch teams can assign drivers using zone and capacity context without spreadsheet handoffs.",
   },
   {
-    title: "Dispatch and deliver with clarity",
+    title: "Deliver with live visibility",
     description:
-      "The dispatcher auto-assigns drivers by zone and capacity. Drivers execute on their mobile app. Customers track delivery in real time — no calls, no manual updates.",
+      "Drivers execute routes in the mobile app, dispatch monitors route progress and exceptions live, and end customers track deliveries through the public tracking portal.",
   },
   {
-    title: "Close the loop with reporting and billing",
+    title: "Close the loop with reports and billing",
     description:
-      "Delivery and storage activity feeds invoices and KPI reporting automatically. Clients see transparent usage-based charges. Leadership acts on actual utilization, not guesswork.",
+      "Operations data rolls into business and order reports plus billing visibility, giving business owners one place to monitor throughput, service levels, and revenue quality.",
+  },
+]
+
+const OWNER_WALKTHROUGH = [
+  {
+    title: "1. Configure your operation",
+    description:
+      "Use Settings, Storage, and Employees to define zones/racks, assign team roles, and establish your daily operating structure.",
+    icon: ShieldCheck,
+  },
+  {
+    title: "2. Receive inventory with control",
+    description:
+      "Open inbound receiving sessions, scan products, and reconcile expected vs received quantities while capturing exceptions for supervisor review.",
+    icon: ArrowDownToLine,
+  },
+  {
+    title: "3. Fulfill and dispatch orders",
+    description:
+      "Move orders through pick/pack tasks, then push packed shipments into Dispatch Queue for route and driver assignment.",
+    icon: Send,
+  },
+  {
+    title: "4. Execute delivery in the field",
+    description:
+      "Dispatch teams monitor routes live while drivers complete stops in the Driver App and publish tracking updates to customers.",
+    icon: Truck,
+  },
+  {
+    title: "5. Review performance and billing",
+    description:
+      "Close each cycle with business reports, order trends, and invoice visibility so you can improve SLA, margin, and client communication.",
+    icon: BarChart3,
   },
 ]
 
@@ -424,10 +469,10 @@ export function PlatformIntro() {
             <Badge variant="outline" className="border-slate-300 text-slate-700">WMS + Last-Mile Delivery</Badge>
           </div>
           <h1 className="text-4xl font-extrabold tracking-tight text-slate-900">
-            The WMS + Delivery platform that removes operational friction
+            Your business-owner walkthrough of the WMS + Delivery platform
           </h1>
           <p className="max-w-2xl text-lg text-slate-600">
-            A fully integrated warehouse management and last-mile delivery system. This demo lets you explore every module, switch between roles, and see how each part of the operation connects — from inbound receiving to customer doorstep.
+            This intro is built for subscribed business owners: start with setup, run inbound and fulfillment, control dispatch, and close the month with reporting and billing. Every module is connected so your team works from one operating system.
           </p>
         </div>
         <div className="relative z-10 mt-6 grid gap-4 md:grid-cols-3">
@@ -452,7 +497,7 @@ export function PlatformIntro() {
           <Card className="border-slate-200">
             <CardContent className="p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
-                <Compass className="h-4 w-4" /> 10 Roles Available
+                <Compass className="h-4 w-4" /> {ROLES.length} Roles Available
               </div>
               <p className="mt-2 text-lg font-semibold text-slate-900">Role-based navigation</p>
               <p className="text-sm text-slate-500">Each role sees only the modules relevant to their work — no clutter.</p>
@@ -466,35 +511,53 @@ export function PlatformIntro() {
         <Card className="border-blue-100 bg-blue-50">
           <CardContent className="p-5 space-y-2">
             <div className="flex items-center gap-2 text-sm font-semibold text-blue-700">
-              <Shield className="h-4 w-4" /> Switch roles
+              <Shield className="h-4 w-4" /> Start as business owner
             </div>
-            <p className="text-sm text-slate-700">Use the role dropdown in the top bar to see the platform through each team member&apos;s eyes. The sidebar updates instantly.</p>
+            <p className="text-sm text-slate-700">Keep the role set to Business Owner first to follow this walkthrough in the intended order.</p>
           </CardContent>
         </Card>
         <Card className="border-emerald-100 bg-emerald-50">
           <CardContent className="p-5 space-y-2">
             <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
-              <Building2 className="h-4 w-4" /> Switch tenants
+              <Building2 className="h-4 w-4" /> Confirm your tenant
             </div>
-            <p className="text-sm text-slate-700">Select a different tenant from the top bar to see isolated data sets — each client&apos;s inventory, orders, and billing are fully separate.</p>
+            <p className="text-sm text-slate-700">Your data stays tenant-scoped. If you operate multiple brands, switch tenant context in the top bar.</p>
           </CardContent>
         </Card>
         <Card className="border-amber-100 bg-amber-50">
           <CardContent className="p-5 space-y-2">
             <div className="flex items-center gap-2 text-sm font-semibold text-amber-700">
-              <Compass className="h-4 w-4" /> Navigate modules
+              <Compass className="h-4 w-4" /> Follow the flow
             </div>
-            <p className="text-sm text-slate-700">Click any item in the left sidebar to open that module. Sections are grouped by operational area — warehouse, dispatch, client portal, and more.</p>
+            <p className="text-sm text-slate-700">Move through Inbound → Inventory → Orders → Dispatch Queue → Routes to see the full operation lifecycle.</p>
           </CardContent>
         </Card>
         <Card className="border-purple-100 bg-purple-50">
           <CardContent className="p-5 space-y-2">
             <div className="flex items-center gap-2 text-sm font-semibold text-purple-700">
-              <Network className="h-4 w-4" /> See it connected
+              <Network className="h-4 w-4" /> Validate cross-module sync
             </div>
-            <p className="text-sm text-slate-700">Actions in one module flow to others. Pack an order — it appears in the dispatch queue. Dispatch it — the driver app and tracking portal update.</p>
+            <p className="text-sm text-slate-700">Test one action end to end: receive or pack an order, then confirm downstream updates in dispatch, tracking, reports, and billing.</p>
           </CardContent>
         </Card>
+      </section>
+
+      {/* ── Business owner walkthrough ── */}
+      <section>
+        <h2 className="text-xl font-semibold text-slate-900 mb-1">Business owner walkthrough</h2>
+        <p className="text-sm text-slate-500 mb-4">Follow these five steps to evaluate the full platform from setup to monthly performance review.</p>
+        <div className="grid gap-4 lg:grid-cols-5">
+          {OWNER_WALKTHROUGH.map((step) => (
+            <Card key={step.title} className="border-slate-200">
+              <CardContent className="p-4 space-y-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <step.icon className="h-4 w-4" /> {step.title}
+                </div>
+                <p className="text-xs text-slate-600">{step.description}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </section>
 
       {/* ── Value points ── */}
@@ -517,12 +580,12 @@ export function PlatformIntro() {
       {/* ── Recent updates ── */}
       <section className="rounded-2xl border border-slate-200 bg-white p-6">
         <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
-          <Sparkles className="h-4 w-4" /> Recent updates (March 5, 2026)
+          <Sparkles className="h-4 w-4" /> Recent updates (March 9, 2026)
         </div>
         <p className="mt-2 text-sm text-slate-500">
-          Highlights from the most recent platform work, focused on multi-tenant operations and end-customer visibility.
+          Highlights from the latest release cycle across security, inventory control, and receiving accuracy.
         </p>
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
           {RECENT_UPDATES.map((update) => (
             <Card key={update.title} className="border-slate-100 bg-slate-50">
               <CardContent className="p-4 space-y-2">
@@ -540,10 +603,10 @@ export function PlatformIntro() {
       {/* ── Build plan ── */}
       <section className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
         <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
-          <ClipboardList className="h-4 w-4" /> Build plan snapshot
+          <ClipboardList className="h-4 w-4" /> Platform capability snapshot
         </div>
         <p className="mt-2 text-sm text-slate-500">
-          The roadmap prioritizes core warehouse execution, delivery orchestration, and client visibility.
+          What is already implemented and what to operationalize next as part of rollout.
         </p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           {BUILD_PLAN.map((item) => (
@@ -556,7 +619,7 @@ export function PlatformIntro() {
           ))}
         </div>
         <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
-          <div className="text-sm font-semibold text-slate-700">Immediate next steps</div>
+          <div className="text-sm font-semibold text-slate-700">Owner launch checklist</div>
           <ul className="mt-2 space-y-1 text-xs text-slate-500">
             {BUILD_PLAN_NEXT_STEPS.map((step) => (
               <li key={step} className="flex items-start gap-2">
@@ -588,7 +651,7 @@ export function PlatformIntro() {
       {/* ── End-to-end flow ── */}
       <section className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
         <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
-          <Route className="h-4 w-4" /> End-to-end operational flow
+          <Route className="h-4 w-4" /> End-to-end business flow
         </div>
         <div className="mt-4 flex flex-wrap gap-2 items-center">
           {FLOW_STEPS.map((step, i) => (
@@ -603,13 +666,13 @@ export function PlatformIntro() {
           ))}
         </div>
         <p className="mt-3 text-sm text-slate-500">
-          Each step feeds the next: inbound receipts create inventory, inventory enables orders, orders generate pick/pack tasks, completed packs enter the dispatch queue, dispatched routes go to drivers, and delivery status powers the tracking portal, client reports, and billing.
+          Each step feeds the next: receiving creates trusted inventory, inventory enables fulfillment, fulfillment feeds dispatch, route execution powers customer visibility, and completed activity rolls into reporting and billing.
         </p>
       </section>
 
       {/* ── Workflow detail ── */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mb-4">How the workflow flows</h2>
+        <h2 className="text-xl font-semibold text-slate-900 mb-4">How your daily operation runs</h2>
         <div className="grid gap-4 lg:grid-cols-2">
           {WORKFLOW_DETAIL.map((item) => (
             <Card key={item.title} className="border-slate-200">
@@ -626,7 +689,7 @@ export function PlatformIntro() {
       <section className="space-y-6">
         <div>
           <h2 className="text-xl font-semibold text-slate-900">Module reference</h2>
-          <p className="text-sm text-slate-500 mt-1">Every screen in the platform, what it does, and how it connects to the rest of the system.</p>
+          <p className="text-sm text-slate-500 mt-1">Every available screen, who uses it, and how it connects to your end-to-end operation.</p>
         </div>
         {PAGE_GROUPS.map((group) => (
           <Card key={group.title} className="border-slate-200">

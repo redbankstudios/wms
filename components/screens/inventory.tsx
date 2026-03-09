@@ -99,7 +99,7 @@ function ItemDialog({
           location: form.location, status: form.status,
           qty: Number(form.qty), minStock: Number(form.minStock),
           productUnits: Number(form.productUnits),
-        })
+        }, tenantId)
       } else {
         await api.inventory.createInventoryItem({
           tenantId, sku: form.sku, name: form.name, client: form.client,
@@ -190,7 +190,7 @@ function ItemDialog({
 // ─── Transfer Dialog ──────────────────────────────────────────────────────────
 
 function TransferDialog({
-  open, onOpenChange, inventory, locations, onSaved, api, preselectedItem,
+  open, onOpenChange, inventory, locations, onSaved, api, preselectedItem, tenantId,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
@@ -199,6 +199,7 @@ function TransferDialog({
   onSaved: () => void
   api: ReturnType<typeof getProvider>
   preselectedItem: InventoryItem | null
+  tenantId: string
 }) {
   const [itemId, setItemId] = React.useState("")
   const [newLocation, setNewLocation] = React.useState("")
@@ -215,7 +216,7 @@ function TransferDialog({
     if (!itemId || !newLocation) return
     setSaving(true)
     try {
-      await api.inventory.updateInventoryItem(itemId, { location: newLocation })
+      await api.inventory.updateInventoryItem(itemId, { location: newLocation }, tenantId)
       onSaved()
       onOpenChange(false)
     } finally {
@@ -348,7 +349,7 @@ export function InventoryManagement() {
   async function handleDelete() {
     if (!deleteItem) return
     setDeleting(true)
-    await api.inventory.deleteInventoryItem(deleteItem.id)
+    await api.inventory.deleteInventoryItem(deleteItem.id, tenantId)
     setDeleteItem(null)
     setDeleting(false)
     await loadData()
@@ -592,7 +593,7 @@ export function InventoryManagement() {
       <ItemDialog open={!!editItem} onOpenChange={v => { if (!v) setEditItem(null) }} initial={editItem}
         clients={clients} locations={locations} tenantId={tenantId} onSaved={loadData} api={api} />
       <TransferDialog open={transferOpen} onOpenChange={v => { if (!v) { setTransferOpen(false); setTransferItem(null) } }}
-        inventory={inventory} locations={locations} onSaved={loadData} api={api} preselectedItem={transferItem} />
+        inventory={inventory} locations={locations} onSaved={loadData} api={api} preselectedItem={transferItem} tenantId={tenantId} />
 
       <Dialog open={!!deleteItem} onOpenChange={v => { if (!v) setDeleteItem(null) }}>
         <DialogContent className="max-w-sm">

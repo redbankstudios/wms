@@ -81,7 +81,7 @@ export interface OrdersProvider {
   getOrdersByTenant(tenantId: string): Promise<Order[]>
   getAllOrders(): Promise<Order[]>
   getOrderLines(orderId: string): Promise<OrderLine[]>
-  updateOrderStatus(orderId: string, status: Order["status"]): Promise<void>
+  updateOrderStatus(orderId: string, status: Order["status"], tenantId: string): Promise<void>
   createOrder(data: Omit<Order, "id">): Promise<Order>
 }
 
@@ -89,17 +89,17 @@ export interface InventoryProvider {
   getInventoryByTenant(tenantId: string): Promise<InventoryItem[]>
   getAllInventory(): Promise<InventoryItem[]>
   createInventoryItem(data: { tenantId: string; sku: string; name: string; location: string; status: InventoryItem["status"]; qty: number; minStock: number; client: string; productUnits?: number }): Promise<InventoryItem>
-  updateInventoryItem(id: string, updates: { sku?: string; name?: string; location?: string; status?: InventoryItem["status"]; qty?: number; minStock?: number; client?: string; productUnits?: number }): Promise<void>
-  deleteInventoryItem(id: string): Promise<void>
+  updateInventoryItem(id: string, updates: { sku?: string; name?: string; location?: string; status?: InventoryItem["status"]; qty?: number; minStock?: number; client?: string; productUnits?: number }, tenantId: string): Promise<void>
+  deleteInventoryItem(id: string, tenantId: string): Promise<void>
 }
 
 export interface TasksProvider {
   getTasksByTenant(tenantId: string): Promise<Task[]>
   getAllTasks(): Promise<Task[]>
   createTask(task: Omit<Task, "id">): Promise<Task>
-  updateTaskStatus(taskId: string, status: Task["status"]): Promise<void>
-  updateTask(taskId: string, updates: Partial<Omit<Task, "id">>): Promise<void>
-  deleteTask(taskId: string): Promise<void>
+  updateTaskStatus(taskId: string, status: Task["status"], tenantId: string): Promise<void>
+  updateTask(taskId: string, updates: Partial<Omit<Task, "id">>, tenantId: string): Promise<void>
+  deleteTask(taskId: string, tenantId: string): Promise<void>
 }
 
 export interface InboundProvider {
@@ -116,14 +116,14 @@ export interface RoutesProvider {
   getRouteStops(routeId: string): Promise<RouteStop[]>
   getExceptions(tenantId: string): Promise<RouteException[]>
   createRouteStop(stop: Omit<RouteStop, "id"> & { routeId: string }): Promise<RouteStop>
-  updateRouteStop(stopId: string, updates: Partial<RouteStop>): Promise<void>
+  updateRouteStop(stopId: string, updates: Partial<RouteStop>, tenantId: string): Promise<void>
 }
 
 export interface ReturnsProvider {
   getReturnsByTenant(tenantId: string): Promise<Return[]>
   getAllReturns(): Promise<Return[]>
   getReturnLines(returnId: string): Promise<ReturnItem[]>
-  updateReturnDisposition(returnId: string, status: string, disposition: string): Promise<void>
+  updateReturnDisposition(returnId: string, status: string, disposition: string, tenantId: string): Promise<void>
 }
 
 export interface DriversProvider {
