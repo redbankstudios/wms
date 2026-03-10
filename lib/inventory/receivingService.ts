@@ -252,12 +252,13 @@ export async function recordReceivingScan(
     }
   } else if (sku) {
     // Direct SKU entry — look up inventory item
-    const { data: item } = await db
+    const { data: itemRows } = await db
       .from("inventory_items")
       .select("id")
       .eq("tenant_id", tenantId)
       .eq("sku", sku)
-      .maybeSingle()
+      .limit(1)
+    const item = itemRows?.[0] ?? null
 
     // Manual SKU mode: a missing inventory item is a user validation error.
     // Do NOT create a scan row and do NOT raise an unknown_barcode exception —
