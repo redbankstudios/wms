@@ -17,25 +17,31 @@ import { createAdminClient } from "@/lib/supabase/server"
 import type { AppUser } from "@/lib/authz"
 
 const VALID_ORDER_STATUSES = [
-  "pending", "processing", "packed", "shipped", "in_transit",
+  "pending", "allocated", "picking", "processing", "packed", "shipped", "in_transit",
   "delivered", "cancelled", "returned",
 ] as const
 
 type OrderStatus = typeof VALID_ORDER_STATUSES[number]
 
 const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
-  pending: ["processing", "cancelled"],
+  // Fulfillment-ledger states (Phase 6)
+  pending:    ["allocated", "processing", "cancelled"],
+  allocated:  ["picking", "pending", "cancelled"],   // "pending" = release
+  picking:    ["packed", "cancelled"],
+  // Legacy / downstream states
   processing: ["packed", "cancelled"],
-  packed: ["shipped", "cancelled"],
-  shipped: ["in_transit", "cancelled"],
+  packed:     ["shipped", "cancelled"],
+  shipped:    ["in_transit", "cancelled"],
   in_transit: ["delivered", "returned"],
-  delivered: ["returned"],
-  cancelled: [],
-  returned: [],
+  delivered:  ["returned"],
+  cancelled:  [],
+  returned:   [],
 }
 
 function allowedRolesForTransition(to: OrderStatus): string[] {
   switch (to) {
+    case "allocated":
+    case "picking":
     case "processing":
     case "packed":
       return ["warehouse_manager", "warehouse_employee", "packer", "business_owner", "platform_owner"]

@@ -8,11 +8,33 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import {
   Search, ChevronDown, ChevronRight, CheckCircle2, Loader2,
   MapPin, Package, Plus, Download, ShoppingCart, Clock, Truck,
-  X, Hash, Layers, PackageCheck,
+  X, Hash, Layers, PackageCheck, Lock, Unlock, AlertTriangle, XCircle, Send,
 } from "lucide-react"
 import { Order, OrderLine, Client, Shipment } from "@/types"
 import { getProvider } from "@/data"
 import { useDemo } from "@/context/DemoContext"
+
+// ── Reservation summary type (mirrors API response) ──────────────────────────
+
+interface ReservationLine {
+  reservationId: string
+  inventoryItemId: string
+  sku: string
+  orderLineId: string | null
+  reservedQty: number
+  pickedQty: number
+  status: string
+  balance: { on_hand: number; reserved: number; available: number } | null
+}
+
+interface ReservationSummary {
+  orderId: string
+  lines: ReservationLine[]
+  totalReserved: number
+  totalPicked: number
+  fullyAllocated: boolean
+  allPicked: boolean
+}
 
 const STATUS_STEPS = ["pending", "allocated", "picking", "packed", "shipped"] as const
 
@@ -59,6 +81,22 @@ export function OrderManagement() {
   const [search, setSearch] = React.useState("")
   const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("all")
   const [clients, setClients] = React.useState<Client[]>([])
+
+  // Reservation state
+  const [reservations, setReservations] = React.useState<Record<string, ReservationSummary>>({})
+  const [allocating, setAllocating] = React.useState<string | null>(null)
+  const [releasing, setReleasing] = React.useState<string | null>(null)
+  const [packing, setPacking] = React.useState<string | null>(null)
+  const [shipping, setShipping] = React.useState<string | null>(null)
+  const [cancelling, setCancelling] = React.useState<string | null>(null)
+  const [allocationError, setAllocationError] = React.useState<Record<string, string>>({})
+  const [allocationWarning, setAllocationWarning] = React.useState<Record<string, string>>({})
+  // Allocate modal state
+  const [showAllocateModal, setShowAllocateModal] = React.useState(false)
+  const [allocateOrderId, setAllocateOrderId] = React.useState<string | null>(null)
+  const [allocateLines, setAllocateLines] = React.useState<{ inventoryItemId: string; sku: string; qty: number }[]>([
+    { inventoryItemId: "", sku: "", qty: 1 },
+  ])
 
   // Create order modal
   const [showCreate, setShowCreate] = React.useState(false)
@@ -116,6 +154,147 @@ export function OrderManagement() {
     loadData()
   }, [api, selectedTenant.id])
 
+  // ── Reservation helpers ───────────────────────────────────────────────────
+
+  async function loadReservation(orderId: string) {
+    try {
+      const res = await fetch(
+        `/api/orders/${orderId}/reservation?tenantId=${encodeURIComponent(selectedTenant.id)}`
+      )
+      if (res.ok) {
+        const data: ReservationSummary = await res.json()
+        setReservations(prev => ({ ...prev, [orderId]: data }))
+      }
+    } catch {
+      // non-fatal — UI just won't show reservation data
+    }
+  }
+
+  function openAllocateModal(orderId: string) {
+    setAllocateOrderId(orderId)
+    setAllocateLines([{ inventoryItemId: "", sku: "", qty: 1 }])
+    setAllocationError(prev => ({ ...prev, [orderId]: "" }))
+    setAllocationWarning(prev => ({ ...prev, [orderId]: "" }))
+    setShowAllocateModal(true)
+  }
+
+  async function handleAllocate() {
+    if (!allocateOrderId) return
+    const validLines = allocateLines.filter(l => l.inventoryItemId.trim() && l.sku.trim() && l.qty > 0)
+    if (validLines.length === 0) {
+      setAllocationError(prev => ({ ...prev, [allocateOrderId]: "Enter at least one valid line." }))
+      return
+    }
+    setAllocating(allocateOrderId)
+    setAllocationError(prev => ({ ...prev, [allocateOrderId!]: "" }))
+    setAllocationWarning(prev => ({ ...prev, [allocateOrderId!]: "" }))
+    try {
+      const res = await fetch(`/api/orders/${allocateOrderId}/allocate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: selectedTenant.id, lines: validLines }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setAllocationError(prev => ({ ...prev, [allocateOrderId!]: data.error ?? "Allocation failed." }))
+        return
+      }
+      if (data.partialAllocation) {
+        const skus = (data.insufficient as { sku: string }[]).map(i => i.sku).join(", ")
+        setAllocationWarning(prev => ({ ...prev, [allocateOrderId!]: `Partial allocation — insufficient stock for: ${skus}` }))
+      }
+      setOrders(prev => prev.map(o => o.id === allocateOrderId ? { ...o, status: "allocated" } : o))
+      await loadReservation(allocateOrderId!)
+      setShowAllocateModal(false)
+    } finally {
+      setAllocating(null)
+    }
+  }
+
+  async function handleRelease(orderId: string) {
+    setReleasing(orderId)
+    try {
+      const res = await fetch(`/api/orders/${orderId}/release`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: selectedTenant.id }),
+      })
+      if (res.ok) {
+        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: "pending" } : o))
+        setReservations(prev => {
+          const next = { ...prev }
+          delete next[orderId]
+          return next
+        })
+      }
+    } finally {
+      setReleasing(null)
+    }
+  }
+
+  // ── Pack confirmation ────────────────────────────────────────────────────
+
+  async function handlePack(orderId: string) {
+    setPacking(orderId)
+    try {
+      const res = await fetch(`/api/orders/${orderId}/pack`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: selectedTenant.id }),
+      })
+      if (res.ok) {
+        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: "packed" as const } : o))
+      }
+    } finally {
+      setPacking(null)
+    }
+  }
+
+  // ── Ship finalization ────────────────────────────────────────────────────
+
+  async function handleShip(orderId: string) {
+    setShipping(orderId)
+    try {
+      const res = await fetch(`/api/orders/${orderId}/ship`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: selectedTenant.id }),
+      })
+      if (res.ok) {
+        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: "shipped" as const } : o))
+        const shipments = await api.shipments.getShipmentsByOrder(orderId)
+        setShipmentData(prev => ({ ...prev, [orderId]: shipments }))
+      }
+    } finally {
+      setShipping(null)
+    }
+  }
+
+  // ── Cancel & release ─────────────────────────────────────────────────────
+
+  async function handleCancel(orderId: string) {
+    setCancelling(orderId)
+    try {
+      const res = await fetch(`/api/orders/${orderId}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: selectedTenant.id }),
+      })
+      if (res.ok) {
+        setOrders(prev => prev.filter(o => o.id !== orderId))
+        setReservations(prev => {
+          const next = { ...prev }
+          delete next[orderId]
+          return next
+        })
+      }
+    } finally {
+      setCancelling(null)
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+
   const toggleExpand = async (id: string) => {
     if (expandedOrder === id) {
       setExpandedOrder(null)
@@ -130,18 +309,27 @@ export function OrderManagement() {
         const shipments = await api.shipments.getShipmentsByOrder(id)
         setShipmentData(prev => ({ ...prev, [id]: shipments }))
       }
+      // Load reservation data for orders that may have active reservations
+      if (order && ["allocated", "picking", "packed"].includes(order.status) && !reservations[id]) {
+        await loadReservation(id)
+      }
     }
   }
 
   async function advanceOrder(orderId: string, currentStatus: string) {
+    // Route pack and ship through the trusted ledger-aware endpoints
+    if (currentStatus === "picking" || currentStatus === "processing") {
+      await handlePack(orderId)
+      return
+    }
+    if (currentStatus === "packed") {
+      await handleShip(orderId)
+      return
+    }
     const nextStatus = NEXT_STATUS[currentStatus]
     if (!nextStatus) return
     await api.orders.updateOrderStatus(orderId, nextStatus, selectedTenant.id)
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: nextStatus } : o))
-    if (nextStatus === "shipped") {
-      const shipments = await api.shipments.getShipmentsByOrder(orderId)
-      setShipmentData(prev => ({ ...prev, [orderId]: shipments }))
-    }
   }
 
   function openCreate() {
@@ -386,7 +574,19 @@ export function OrderManagement() {
                     </TableCell>
                     <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                       {NEXT_STATUS[order.status] ? (
-                        <Button size="sm" variant="outline" onClick={() => advanceOrder(order.id, order.status)}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={
+                            packing === order.id || shipping === order.id || cancelling === order.id
+                          }
+                          onClick={() => advanceOrder(order.id, order.status)}
+                          className="gap-1.5"
+                        >
+                          {(packing === order.id || shipping === order.id) && (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          )}
+                          {order.status === "packed" && <Send className="h-3 w-3" />}
                           {ACTION_LABEL[order.status]}
                         </Button>
                       ) : (
@@ -457,6 +657,117 @@ export function OrderManagement() {
                             </div>
                           )}
 
+                          {/* Inventory Allocation Panel */}
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                                Inventory Allocation
+                              </p>
+                              {order.status === "pending" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={e => { e.stopPropagation(); openAllocateModal(order.id) }}
+                                  className="h-7 text-xs gap-1.5"
+                                >
+                                  <Lock className="h-3 w-3" />
+                                  Allocate Inventory
+                                </Button>
+                              )}
+                              {["allocated", "picking"].includes(order.status) && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={e => { e.stopPropagation(); handleRelease(order.id) }}
+                                  disabled={releasing === order.id}
+                                  className="h-7 text-xs gap-1.5 text-amber-600 border-amber-200 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-800 dark:hover:bg-amber-900/20"
+                                >
+                                  {releasing === order.id
+                                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                                    : <Unlock className="h-3 w-3" />}
+                                  Release
+                                </Button>
+                              )}
+                              {["pending", "allocated", "picking", "processing", "packed"].includes(order.status) && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={e => { e.stopPropagation(); handleCancel(order.id) }}
+                                  disabled={cancelling === order.id}
+                                  className="h-7 text-xs gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
+                                >
+                                  {cancelling === order.id
+                                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                                    : <XCircle className="h-3 w-3" />}
+                                  Cancel & Release
+                                </Button>
+                              )}
+                            </div>
+
+                            {allocationError[order.id] && (
+                              <div className="mb-2 flex items-center gap-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md px-3 py-2">
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                {allocationError[order.id]}
+                              </div>
+                            )}
+                            {allocationWarning[order.id] && (
+                              <div className="mb-2 flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-2">
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                {allocationWarning[order.id]}
+                              </div>
+                            )}
+
+                            {reservations[order.id] && reservations[order.id].lines.length > 0 ? (
+                              <div className="rounded-lg border border-blue-100 dark:border-blue-800/40 bg-blue-50/50 dark:bg-blue-900/10 overflow-hidden">
+                                <Table>
+                                  <TableHeader className="bg-blue-50 dark:bg-blue-900/20">
+                                    <TableRow>
+                                      <TableHead className="h-7 text-xs">SKU</TableHead>
+                                      <TableHead className="h-7 text-xs text-right">Reserved</TableHead>
+                                      <TableHead className="h-7 text-xs text-right">Picked</TableHead>
+                                      <TableHead className="h-7 text-xs text-right">Available</TableHead>
+                                      <TableHead className="h-7 text-xs">State</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {reservations[order.id].lines.map(line => (
+                                      <TableRow key={line.reservationId}>
+                                        <TableCell className="text-xs font-mono text-slate-600 dark:text-slate-400 py-1.5">{line.sku}</TableCell>
+                                        <TableCell className="text-xs text-right py-1.5 dark:text-slate-300">{line.reservedQty}</TableCell>
+                                        <TableCell className="text-xs text-right py-1.5 dark:text-slate-300">{line.pickedQty}</TableCell>
+                                        <TableCell className="text-xs text-right py-1.5">
+                                          <span className={line.balance && line.balance.available > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400"}>
+                                            {line.balance?.available ?? "—"}
+                                          </span>
+                                        </TableCell>
+                                        <TableCell className="py-1.5">
+                                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                            line.status === "fulfilled" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                                            : line.status === "partially_picked" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                                            : line.status === "active" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                                            : "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400"
+                                          }`}>
+                                            {line.status.replace("_", " ")}
+                                          </span>
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                                <div className="px-4 py-2 border-t border-blue-100 dark:border-blue-800/30 text-xs text-slate-500 dark:text-slate-400 flex gap-4">
+                                  <span>Reserved: <strong className="text-slate-700 dark:text-slate-200">{reservations[order.id].totalReserved}</strong></span>
+                                  <span>Picked: <strong className="text-slate-700 dark:text-slate-200">{reservations[order.id].totalPicked}</strong></span>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="rounded-lg border border-dashed border-slate-200 dark:border-slate-700 px-4 py-3 text-xs text-slate-400 dark:text-slate-500">
+                                {order.status === "pending"
+                                  ? "No inventory allocated yet. Click \"Allocate Inventory\" to reserve stock for this order."
+                                  : "No reservation records found."}
+                              </div>
+                            )}
+                          </div>
+
                           {/* Order Lines */}
                           <div>
                             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Order Lines</p>
@@ -510,6 +821,87 @@ export function OrderManagement() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Allocate Inventory Modal */}
+      <Dialog open={showAllocateModal} onOpenChange={setShowAllocateModal}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              <span className="flex items-center gap-2">
+                <Lock className="h-4 w-4 text-blue-500" />
+                Allocate Inventory
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-slate-500 dark:text-slate-400 -mt-1 mb-1">
+            Enter the inventory items and quantities to reserve for order{" "}
+            <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">{allocateOrderId}</span>.
+          </p>
+          {allocateOrderId && allocationError[allocateOrderId] && (
+            <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md px-3 py-2 mb-1">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              {allocationError[allocateOrderId]}
+            </div>
+          )}
+          <div className="space-y-2 mt-1">
+            <div className="grid grid-cols-[1fr_1fr_auto_auto] gap-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-1">
+              <span>Inventory Item ID</span><span>SKU</span><span>Qty</span><span></span>
+            </div>
+            {allocateLines.map((line, idx) => (
+              <div key={idx} className="grid grid-cols-[1fr_1fr_auto_auto] gap-2 items-center">
+                <input
+                  type="text"
+                  value={line.inventoryItemId}
+                  onChange={e => setAllocateLines(prev => prev.map((l, i) => i === idx ? { ...l, inventoryItemId: e.target.value } : l))}
+                  placeholder="INV-001"
+                  className="h-8 rounded-md border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs dark:text-slate-100 px-2 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
+                <input
+                  type="text"
+                  value={line.sku}
+                  onChange={e => setAllocateLines(prev => prev.map((l, i) => i === idx ? { ...l, sku: e.target.value } : l))}
+                  placeholder="SKU-100"
+                  className="h-8 rounded-md border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs dark:text-slate-100 px-2 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
+                <input
+                  type="number"
+                  value={line.qty}
+                  min={1}
+                  onChange={e => setAllocateLines(prev => prev.map((l, i) => i === idx ? { ...l, qty: parseInt(e.target.value) || 1 } : l))}
+                  className="w-16 h-8 rounded-md border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs dark:text-slate-100 px-2 focus:outline-none focus:ring-1 focus:ring-slate-400 text-center"
+                />
+                {allocateLines.length > 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => setAllocateLines(prev => prev.filter((_, i) => i !== idx))}
+                    className="text-slate-400 hover:text-red-500 p-1"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                ) : <span />}
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setAllocateLines(prev => [...prev, { inventoryItemId: "", sku: "", qty: 1 }])}
+              className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 flex items-center gap-1 mt-1"
+            >
+              <Plus className="h-3 w-3" /> Add line
+            </button>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAllocateModal(false)}>Cancel</Button>
+            <Button
+              onClick={handleAllocate}
+              disabled={allocating !== null}
+              className="gap-1.5"
+            >
+              {allocating !== null ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+              Reserve Inventory
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Create Order Modal */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>

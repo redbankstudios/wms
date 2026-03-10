@@ -358,8 +358,17 @@ export function DispatchQueue() {
         packages: order.items,
       })
     }
-    // Update order status to shipped and reflect locally
-    await api.orders.updateOrderStatus(order.id, "shipped", tenantId ?? "")
+    // Finalize shipment through the trusted ship endpoint (writes ledger impact,
+    // closes reservations, records shipped_at) instead of a loose status PATCH.
+    const res = await fetch(`/api/orders/${order.id}/ship`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tenantId: tenantId ?? "" }),
+    })
+    if (!res.ok) {
+      console.error("[dispatch] Ship API error:", await res.text())
+      return
+    }
     setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: "shipped" as const } : o))
     setDispatchedDriverIds(prev => ({ ...prev, [order.id]: driverId }))
   }
