@@ -14,6 +14,7 @@ import {
   Package,
   PackagePlus,
   Ruler,
+  Search,
   Truck,
   Weight,
   X,
@@ -114,6 +115,35 @@ function computeSuggestions(pallets: InboundPallet[], racks: Rack[], zones: Ware
   }
 
   return suggestions
+}
+
+// ─── Derived shipment counts ──────────────────────────────────────────────────
+// Counts are derived by traversing the inbound hierarchy:
+// InboundShipment → InboundPallet[] → InboundBox[] → InboundBoxItem[]
+//
+// skus = distinct SKU strings across all box items (not line-item count)
+// units = sum of InboundBoxItem.quantity across all box items
+
+interface ShipmentCounts {
+  boxes: number
+  skus: number   // distinct SKU strings
+  units: number  // sum of item.quantity
+}
+
+async function computeShipmentCounts(
+  shipmentId: string,
+  api: ReturnType<typeof getProvider>
+): Promise<ShipmentCounts> {
+  const pallets = await api.inbound.getPalletsByShipment(shipmentId)
+  const boxArrays = await Promise.all(pallets.map(p => api.inbound.getBoxesByPallet(p.id)))
+  const allBoxes = boxArrays.flat()
+  const itemArrays = await Promise.all(allBoxes.map(b => api.inbound.getBoxItems(b.id)))
+  const allItems = itemArrays.flat()
+  return {
+    boxes: allBoxes.length,
+    skus: new Set(allItems.map(i => i.sku)).size,
+    units: allItems.reduce((sum, i) => sum + i.quantity, 0),
+  }
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -1128,6 +1158,14 @@ export function InboundManagement() {
   const [confirming, setConfirming] = React.useState(false)
   const [showNewForm, setShowNewForm] = React.useState(false)
 
+  // Derived counts: loaded in the background after initial page load
+  const [derivedCounts, setDerivedCounts] = React.useState<Record<string, ShipmentCounts>>({})
+
+  // Filter state
+  const [filterStatus, setFilterStatus] = React.useState("all")
+  const [filterClient, setFilterClient] = React.useState("all")
+  const [filterSearch, setFilterSearch] = React.useState("")
+
   const clientNameMap = React.useMemo(
     () => Object.fromEntries(clients.map(c => [c.id, c.name])),
     [clients]
@@ -1154,6 +1192,19 @@ export function InboundManagement() {
       }
       setRacks(allRacks)
       setLoading(false)
+
+      // Background: compute derived counts for all shipments sequentially
+      // (non-blocking — table cells update as each completes)
+      ;(async () => {
+        for (const ship of s) {
+          try {
+            const counts = await computeShipmentCounts(ship.id, api)
+            setDerivedCounts(prev => ({ ...prev, [ship.id]: counts }))
+          } catch {
+            // non-fatal: cell stays "—"
+          }
+        }
+      })()
     }
     load()
   }, [api, selectedTenant.id])
@@ -1167,12 +1218,13 @@ export function InboundManagement() {
     setPalletsLoading(false)
   }
 
+  const closePanel = () => setSelected(null)
+
   const handleConfirm = async () => {
     if (!selected) return
     setConfirming(true)
     try {
       const priority = getPriority(selected.arrivalDate, selected.arrivalWindowStart)
-
       const scheduledDate = new Date().toISOString().slice(0, 10)
 
       // 1 Receive task for the shipment
@@ -1214,6 +1266,22 @@ export function InboundManagement() {
     }
   }
 
+  // Filtered shipments (local, in-memory)
+  const filteredShipments = React.useMemo(() => {
+    return shipments.filter(s => {
+      if (filterStatus !== "all" && s.status !== filterStatus) return false
+      if (filterClient !== "all" && s.clientId !== filterClient) return false
+      if (filterSearch.trim()) {
+        const q = filterSearch.toLowerCase()
+        const clientName = (clientNameMap[s.clientId] ?? s.clientId).toLowerCase()
+        if (!s.referenceNumber.toLowerCase().includes(q) && !clientName.includes(q)) return false
+      }
+      return true
+    })
+  }, [shipments, filterStatus, filterClient, filterSearch, clientNameMap])
+
+  const filtersActive = filterStatus !== "all" || filterClient !== "all" || filterSearch.trim() !== ""
+
   if (loading) {
     return (
       <div className="flex h-[50vh] items-center justify-center">
@@ -1252,177 +1320,362 @@ export function InboundManagement() {
         })}
       </div>
 
-      {/* Main split layout */}
-      <div className="flex gap-4 min-h-[600px]">
-        {/* Left: shipment list */}
-        <div className="w-80 shrink-0 space-y-2">
-          {shipments.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-48 border border-dashed border-slate-200 rounded-lg text-slate-400 text-sm">
-              <ArrowDownToLine className="h-8 w-8 mb-2 opacity-40" />
-              No inbound shipments
-            </div>
-          ) : (
-            shipments.map(s => (
-              <button
-                key={s.id}
-                onClick={() => selectShipment(s)}
-                className={`w-full text-left p-4 rounded-lg border transition-all ${
-                  selected?.id === s.id
-                    ? "border-slate-900 bg-slate-900 text-white shadow-md"
-                    : "border-slate-200 bg-white dark:bg-slate-800 dark:border-slate-700 hover:border-slate-400 hover:shadow-sm"
-                }`}
-              >
-                <div className="flex items-start justify-between mb-2">
-                  <span className={`text-xs font-mono ${selected?.id === s.id ? "text-slate-400" : "text-slate-400"}`}>{s.referenceNumber}</span>
-                  {getStatusBadge(s.status)}
-                </div>
-                <p className={`font-semibold text-sm ${selected?.id === s.id ? "text-white" : "text-slate-900"}`}>{clientNameMap[s.clientId] ?? s.clientId}</p>
-                <div className={`flex items-center gap-2 mt-1 text-xs ${selected?.id === s.id ? "text-slate-300" : "text-slate-500"}`}>
-                  <Clock className="h-3 w-3" />
-                  {s.arrivalDate} · {s.arrivalWindowStart}–{s.arrivalWindowEnd}
-                </div>
-                <div className={`flex items-center gap-2 mt-1 text-xs ${selected?.id === s.id ? "text-slate-300" : "text-slate-500"}`}>
-                  <Package className="h-3 w-3" />
-                  {s.totalPallets} pallets
-                  {s.dockDoor && <><Truck className="h-3 w-3 ml-1" /> Door {s.dockDoor}</>}
-                </div>
-              </button>
-            ))
+      {/* Inbound queue table */}
+      <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-white dark:bg-slate-800">
+
+        {/* Filter bar */}
+        <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30 flex-wrap">
+          {/* Search */}
+          <div className="relative flex-1 min-w-[180px] max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+            <input
+              className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 dark:border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-slate-400 bg-white dark:bg-slate-700 dark:text-slate-100 placeholder:text-slate-400"
+              placeholder="Search reference or client…"
+              value={filterSearch}
+              onChange={e => setFilterSearch(e.target.value)}
+            />
+          </div>
+
+          {/* Status filter */}
+          <select
+            className="text-xs border border-slate-200 dark:border-slate-600 rounded-md px-2.5 py-1.5 bg-white dark:bg-slate-700 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-slate-400"
+            value={filterStatus}
+            onChange={e => setFilterStatus(e.target.value)}
+          >
+            <option value="all">All statuses</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="arrived">Arrived</option>
+            <option value="receiving">In Progress</option>
+            <option value="putaway">Putaway</option>
+            <option value="complete">Complete</option>
+          </select>
+
+          {/* Client filter */}
+          <select
+            className="text-xs border border-slate-200 dark:border-slate-600 rounded-md px-2.5 py-1.5 bg-white dark:bg-slate-700 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-slate-400"
+            value={filterClient}
+            onChange={e => setFilterClient(e.target.value)}
+          >
+            <option value="all">All clients</option>
+            {clients.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+
+          {/* Clear filters */}
+          {filtersActive && (
+            <button
+              onClick={() => { setFilterStatus("all"); setFilterClient("all"); setFilterSearch("") }}
+              className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-1 transition-colors"
+            >
+              <X className="h-3 w-3" /> Clear
+            </button>
           )}
+
+          {/* Result count */}
+          <span className="ml-auto text-xs text-slate-400 tabular-nums shrink-0">
+            {filteredShipments.length}{filtersActive ? ` of ${shipments.length}` : ""} shipment{filteredShipments.length !== 1 ? "s" : ""}
+          </span>
         </div>
 
-        {/* Right: detail panel */}
-        {selected ? (
-          <div className="flex-1 min-w-0 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800">
-            {/* Detail header */}
-            <div className="flex items-start justify-between p-5 border-b border-slate-200 dark:border-slate-700">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  {getStatusBadge(selected.status)}
-                  <span className="text-xs text-slate-400 font-mono">{selected.referenceNumber}</span>
-                </div>
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{clientNameMap[selected.clientId] ?? selected.clientId}</h3>
-                <p className="text-sm text-slate-500 flex items-center gap-1 mt-0.5">
-                  <Clock className="h-3.5 w-3.5" />
-                  {selected.arrivalDate} · {selected.arrivalWindowStart} – {selected.arrivalWindowEnd}
-                  {selected.dockDoor && <span className="ml-2 flex items-center gap-1"><Truck className="h-3.5 w-3.5" /> Door {selected.dockDoor}</span>}
-                </p>
-              </div>
-              <button onClick={() => setSelected(null)} className="text-slate-400 hover:text-slate-600">
-                <X className="h-4 w-4" />
+        {/* Table */}
+        {filteredShipments.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-14 text-slate-400">
+            <ArrowDownToLine className="h-10 w-10 mb-3 opacity-30" />
+            <p className="text-sm">{shipments.length === 0 ? "No inbound shipments" : "No shipments match the current filters"}</p>
+            {shipments.length === 0 && <p className="text-xs mt-1 text-slate-300">Click &ldquo;New Inbound&rdquo; to create one</p>}
+            {filtersActive && (
+              <button
+                onClick={() => { setFilterStatus("all"); setFilterClient("all"); setFilterSearch("") }}
+                className="mt-3 text-xs text-slate-500 underline hover:text-slate-700"
+              >
+                Clear filters
               </button>
-            </div>
+            )}
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 text-left">
+                <th className="px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Reference</th>
+                <th className="px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Client</th>
+                <th className="px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Status</th>
+                <th className="px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide text-right">Pallets</th>
+                <th className="px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide text-right">Boxes</th>
+                <th className="px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide text-right">SKUs</th>
+                <th className="px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Arrival</th>
+                <th className="px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Carrier</th>
+                <th className="px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Door</th>
+                <th className="px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Priority</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
+              {filteredShipments.map(s => {
+                const priority = getPriority(s.arrivalDate, s.arrivalWindowStart)
+                const isSelected = selected?.id === s.id
+                const counts = derivedCounts[s.id]
+                const dimText = isSelected ? "text-slate-300" : "text-slate-500 dark:text-slate-400"
+                const numText = isSelected ? "text-white" : "text-slate-900 dark:text-slate-100"
+                const dash = <span className={`${dimText} italic text-xs`}>—</span>
+                return (
+                  <tr
+                    key={s.id}
+                    onClick={() => selectShipment(s)}
+                    className={`cursor-pointer transition-colors ${
+                      isSelected
+                        ? "bg-slate-900 dark:bg-slate-700"
+                        : "hover:bg-slate-50 dark:hover:bg-slate-700/40"
+                    }`}
+                  >
+                    <td className="px-3 py-2.5">
+                      <span className={`font-mono text-xs ${dimText}`}>{s.referenceNumber}</span>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className={`font-medium text-sm ${numText}`}>
+                        {clientNameMap[s.clientId] ?? s.clientId}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5">{getStatusBadge(s.status)}</td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className={`font-medium tabular-nums text-sm ${numText}`}>{s.totalPallets}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      {counts
+                        ? <span className={`tabular-nums text-sm font-medium ${numText}`}>{counts.boxes}</span>
+                        : dash}
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      {counts
+                        ? <span className={`tabular-nums text-sm font-medium ${numText}`}>{counts.skus}</span>
+                        : dash}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className={`flex items-center gap-1 text-xs whitespace-nowrap ${dimText}`}>
+                        <Clock className="h-3 w-3 shrink-0" />
+                        {s.arrivalDate}
+                        <span className="opacity-40">·</span>
+                        {s.arrivalWindowStart}–{s.arrivalWindowEnd}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className={`text-xs truncate max-w-[100px] block ${dimText}`}>
+                        {s.carrier || dash}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      {s.dockDoor
+                        ? <span className={`text-xs font-medium ${isSelected ? "text-slate-200" : "text-slate-700 dark:text-slate-300"}`}>Door {s.dockDoor}</span>
+                        : dash}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      {priority === "urgent"
+                        ? <Badge className="bg-red-500 text-white text-xs">Urgent</Badge>
+                        : priority === "high"
+                        ? <Badge className="bg-amber-500 text-white text-xs">High</Badge>
+                        : <Badge variant="outline" className="text-xs">Normal</Badge>}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
 
-            {/* Tabs */}
-            <div className="flex border-b border-slate-200 dark:border-slate-700">
-              {(["overview", "pallets", "locations", "receiving"] as const).map(tab => (
-                <button
-                  key={tab}
-                  onClick={() => setDetailTab(tab)}
-                  className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 ${
-                    detailTab === tab
-                      ? "border-slate-900 text-slate-900 dark:border-slate-300 dark:text-slate-100"
-                      : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-                  }`}
-                >
-                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                </button>
-              ))}
-            </div>
+      {/* Slide-over detail panel */}
+      {selected && (() => {
+        const counts = derivedCounts[selected.id]
+        const priority = getPriority(selected.arrivalDate, selected.arrivalWindowStart)
+        return (
+          <div className="fixed inset-0 z-50 flex" aria-modal="true">
+            {/* Backdrop */}
+            <div className="flex-1 bg-black/25" onClick={closePanel} />
 
-            {/* Tab content */}
-            <div className="p-5 overflow-y-auto max-h-[480px]">
-              {/* Overview tab */}
-              {detailTab === "overview" && (
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <div>
-                      <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Carrier</p>
-                      <p className="text-sm text-slate-900 dark:text-slate-100 flex items-center gap-1.5"><Truck className="h-4 w-4 text-slate-400" />{selected.carrier || "—"}</p>
+            {/* Panel */}
+            <div className="w-[min(960px,78vw)] bg-white dark:bg-slate-800 h-full shadow-2xl flex flex-col border-l border-slate-200 dark:border-slate-700">
+
+              {/* Panel header */}
+              <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 shrink-0">
+                <div className="flex items-start justify-between">
+                  <div className="min-w-0 flex-1 pr-4">
+                    {/* Title row */}
+                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                      {getStatusBadge(selected.status)}
+                      <span className="text-xs text-slate-400 font-mono">{selected.referenceNumber}</span>
+                      {priority === "urgent" && <Badge className="bg-red-500 text-white text-xs">Urgent</Badge>}
+                      {priority === "high" && <Badge className="bg-amber-500 text-white text-xs">High</Badge>}
                     </div>
-                    <div>
-                      <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Arrival Window</p>
-                      <p className="text-sm text-slate-900 dark:text-slate-100 flex items-center gap-1.5"><Clock className="h-4 w-4 text-slate-400" />{selected.arrivalDate} · {selected.arrivalWindowStart} – {selected.arrivalWindowEnd}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Dock Door</p>
-                      <p className="text-sm text-slate-900 dark:text-slate-100">Door {selected.dockDoor || "—"}</p>
+                    <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 truncate">
+                      {clientNameMap[selected.clientId] ?? selected.clientId}
+                    </h3>
+                    {/* Meta row */}
+                    <div className="flex items-center gap-4 mt-1 text-xs text-slate-500 flex-wrap">
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3 w-3 shrink-0" />
+                        {selected.arrivalDate} · {selected.arrivalWindowStart} – {selected.arrivalWindowEnd}
+                      </span>
+                      {selected.dockDoor && (
+                        <span className="flex items-center gap-1">
+                          <Truck className="h-3 w-3 shrink-0" />
+                          Door {selected.dockDoor}
+                        </span>
+                      )}
+                      {selected.carrier && (
+                        <span className="flex items-center gap-1">
+                          <Package className="h-3 w-3 shrink-0" />
+                          {selected.carrier}
+                        </span>
+                      )}
                     </div>
                   </div>
-                  <div className="space-y-4">
-                    <div>
-                      <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Total Pallets</p>
-                      <p className="text-sm text-slate-900 dark:text-slate-100 flex items-center gap-1.5"><Package className="h-4 w-4 text-slate-400" />{selected.totalPallets}</p>
+                  <button
+                    onClick={closePanel}
+                    className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shrink-0"
+                    aria-label="Close panel"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                {/* Metric grid */}
+                <div className="mt-3 grid grid-cols-4 gap-2">
+                  {[
+                    { label: "Pallets", value: selected.totalPallets, ready: true },
+                    { label: "Boxes",   value: counts?.boxes,  ready: counts !== undefined },
+                    { label: "SKUs",    value: counts?.skus,   ready: counts !== undefined },
+                    { label: "Units",   value: counts?.units,  ready: counts !== undefined },
+                  ].map(({ label, value, ready }) => (
+                    <div key={label} className="bg-slate-50 dark:bg-slate-700/50 rounded-lg px-3 py-2">
+                      <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{label}</p>
+                      <p className="text-base font-bold text-slate-900 dark:text-slate-100 mt-0.5 tabular-nums">
+                        {ready
+                          ? (value ?? 0)
+                          : <span className="text-slate-300 dark:text-slate-500 text-sm font-medium">—</span>
+                        }
+                      </p>
                     </div>
-                    <div>
-                      <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Priority</p>
-                      {(() => {
-                        const p = getPriority(selected.arrivalDate, selected.arrivalWindowStart)
-                        return p === "urgent"
-                          ? <Badge className="bg-red-500">Urgent</Badge>
-                          : p === "high"
-                          ? <Badge className="bg-amber-500">High</Badge>
-                          : <Badge variant="outline">Normal</Badge>
-                      })()}
-                    </div>
-                    {selected.notes && (
+                  ))}
+                </div>
+
+                {selected.notes && (
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/30 rounded px-3 py-1.5 italic">
+                    {selected.notes}
+                  </p>
+                )}
+              </div>
+
+              {/* Tabs */}
+              <div className="flex border-b border-slate-200 dark:border-slate-700 shrink-0 px-2">
+                {(["overview", "pallets", "locations", "receiving"] as const).map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setDetailTab(tab)}
+                    className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 ${
+                      detailTab === tab
+                        ? "border-slate-900 text-slate-900 dark:border-slate-300 dark:text-slate-100"
+                        : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                    }`}
+                  >
+                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  </button>
+                ))}
+              </div>
+
+              {/* Tab content — scrollable */}
+              <div className="flex-1 overflow-y-auto p-6">
+                {/* Overview tab */}
+                {detailTab === "overview" && (
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-4">
                       <div>
-                        <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Notes</p>
-                        <p className="text-sm text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-700 rounded p-2">{selected.notes}</p>
+                        <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Carrier</p>
+                        <p className="text-sm text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                          <Truck className="h-4 w-4 text-slate-400 shrink-0" />
+                          {selected.carrier || "—"}
+                        </p>
                       </div>
+                      <div>
+                        <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Arrival Window</p>
+                        <p className="text-sm text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                          <Clock className="h-4 w-4 text-slate-400 shrink-0" />
+                          {selected.arrivalDate} · {selected.arrivalWindowStart} – {selected.arrivalWindowEnd}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Dock Door</p>
+                        <p className="text-sm text-slate-900 dark:text-slate-100">Door {selected.dockDoor || "—"}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <div>
+                        <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Total Pallets</p>
+                        <p className="text-sm text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                          <Package className="h-4 w-4 text-slate-400 shrink-0" />
+                          {selected.totalPallets}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Priority</p>
+                        {priority === "urgent"
+                          ? <Badge className="bg-red-500">Urgent</Badge>
+                          : priority === "high"
+                          ? <Badge className="bg-amber-500">High</Badge>
+                          : <Badge variant="outline">Normal</Badge>}
+                      </div>
+                      {selected.notes && (
+                        <div>
+                          <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Notes</p>
+                          <p className="text-sm text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-700 rounded p-2">{selected.notes}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Pallets tab */}
+                {detailTab === "pallets" && (
+                  <div className="space-y-3">
+                    {palletsLoading ? (
+                      <div className="flex items-center justify-center py-12">
+                        <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+                      </div>
+                    ) : pallets.length === 0 ? (
+                      <p className="text-sm text-slate-400 italic">No pallets recorded for this shipment.</p>
+                    ) : (
+                      pallets.map(pallet => (
+                        <PalletAccordion key={pallet.id} pallet={pallet} api={api} />
+                      ))
                     )}
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Pallets tab */}
-              {detailTab === "pallets" && (
-                <div className="space-y-3">
-                  {palletsLoading ? (
+                {/* Locations tab */}
+                {detailTab === "locations" && (
+                  palletsLoading ? (
                     <div className="flex items-center justify-center py-12">
                       <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
                     </div>
-                  ) : pallets.length === 0 ? (
-                    <p className="text-sm text-slate-400 italic">No pallets recorded for this shipment.</p>
                   ) : (
-                    pallets.map(pallet => (
-                      <PalletAccordion key={pallet.id} pallet={pallet} api={api} />
-                    ))
-                  )}
-                </div>
-              )}
+                    <LocationsTab
+                      shipment={selected}
+                      pallets={pallets}
+                      racks={racks}
+                      zones={zones}
+                      onConfirm={handleConfirm}
+                      confirming={confirming}
+                    />
+                  )
+                )}
 
-              {/* Locations tab */}
-              {detailTab === "locations" && (
-                palletsLoading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
-                  </div>
-                ) : (
-                  <LocationsTab
-                    shipment={selected}
-                    pallets={pallets}
-                    racks={racks}
-                    zones={zones}
-                    onConfirm={handleConfirm}
-                    confirming={confirming}
-                  />
-                )
-              )}
-
-              {/* Receiving tab */}
-              {detailTab === "receiving" && (
-                <ReceivingTab shipment={selected} tenantId={selectedTenant.id} />
-              )}
+                {/* Receiving tab */}
+                {detailTab === "receiving" && (
+                  <ReceivingTab shipment={selected} tenantId={selectedTenant.id} />
+                )}
+              </div>
             </div>
           </div>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-slate-200 rounded-lg text-slate-400">
-            <ArrowDownToLine className="h-10 w-10 mb-3 opacity-30" />
-            <p className="text-sm">Select a shipment to view details</p>
-          </div>
-        )}
-      </div>
+        )
+      })()}
 
       {/* New Inbound slide-over */}
       {showNewForm && (
