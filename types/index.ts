@@ -124,6 +124,16 @@ export interface Task {
   estimatedEffort?: number | null;
   zone?: string | null;
   createdAt?: string;
+  // Putaway execution fields (Phase 9)
+  inboundShipmentId?: string | null;
+  receivingSessionId?: string | null;
+  inventoryItemId?: string | null;
+  sku?: string | null;
+  sourceLocation?: string | null;
+  destinationLocation?: string | null;
+  qty?: number | null;
+  completedAt?: string | null;
+  completedByUserId?: string | null;
 }
 
 export interface RouteStop {

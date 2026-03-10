@@ -15,6 +15,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { resolveBarcode } from "./barcodeService"
 import { createInventoryMovement } from "./movementService"
+import { buildStagingLocation } from "./putawayService"
 
 // ── ID generators ─────────────────────────────────────────────────────────────
 
@@ -365,15 +366,20 @@ export async function postReceivingScanToLedger(
     throw new Error(`[receivingService] Scan ${scanId} has no resolved_base_qty`)
   }
 
+  // Received inventory lands at the staging location for this shipment.
+  // Putaway tasks will later move it from staging → final storage location.
+  const stagingLoc = buildStagingLocation(scan.inbound_shipment_id)
+
   const { movementId, resolvedQty } = await createInventoryMovement(db, {
     tenantId,
     inventoryItemId: scan.inventory_item_id,
     movementType: "receive",
     qty: scan.resolved_base_qty,
+    toLocation: stagingLoc,
     referenceId: scan.session_id,
     referenceType: "receiving_session",
     actorId: actorId ?? null,
-    note: `Receiving scan ${scan.id}${scan.barcode ? ` · barcode:${scan.barcode}` : ""}${scan.sku ? ` · SKU:${scan.sku}` : ""}`,
+    note: `Receiving scan ${scan.id}${scan.barcode ? ` · barcode:${scan.barcode}` : ""}${scan.sku ? ` · SKU:${scan.sku}` : ""} → ${stagingLoc}`,
   })
 
   // Mark scan as posted

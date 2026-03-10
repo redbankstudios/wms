@@ -24,6 +24,8 @@ import {
   ScanLine,
   Send,
   RefreshCw,
+  MapPin,
+  MoveRight,
 } from "lucide-react"
 import { Client, InboundShipment, InboundPallet, InboundBox, InboundBoxItem, Rack, WarehouseZone } from "@/types"
 import { getProvider } from "@/data"
@@ -31,7 +33,7 @@ import { useDemo } from "@/context/DemoContext"
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type DetailTab = "overview" | "pallets" | "locations" | "receiving"
+type DetailTab = "overview" | "pallets" | "locations" | "receiving" | "putaway"
 
 interface RackSuggestion {
   rack: Rack
@@ -1105,6 +1107,305 @@ function ReceivingTab({
   )
 }
 
+// ─── Putaway Tab ──────────────────────────────────────────────────────────────
+
+interface PutawayTaskUI {
+  id: string
+  status: "pending" | "in_progress" | "completed"
+  sku: string | null
+  qty: number
+  sourceLocation: string | null
+  destinationLocation: string | null
+  completedAt: string | null
+}
+
+function putawayStatusBadge(status: PutawayTaskUI["status"]) {
+  if (status === "completed")
+    return <Badge className="bg-emerald-500 text-white text-xs">Done</Badge>
+  if (status === "in_progress")
+    return <Badge className="bg-blue-500 text-white text-xs">In Progress</Badge>
+  return <Badge variant="outline" className="text-xs border-amber-400 text-amber-600">Pending</Badge>
+}
+
+function PutawayTab({
+  shipment,
+  tenantId,
+  storageLocations,
+}: {
+  shipment: InboundShipment
+  tenantId: string
+  storageLocations: string[]
+}) {
+  const [tasks, setTasks] = React.useState<PutawayTaskUI[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [generating, setGenerating] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  // Per-task destination overrides and confirming state
+  const [destOverrides, setDestOverrides] = React.useState<Record<string, string>>({})
+  const [confirming, setConfirming] = React.useState<string | null>(null)
+  const [confirmError, setConfirmError] = React.useState<Record<string, string>>({})
+
+  const loadTasks = React.useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(
+        `/api/inbound/${shipment.id}/putaway?tenantId=${tenantId}`
+      )
+      if (!res.ok) { setLoading(false); return }
+      const data = await res.json()
+      const rows: PutawayTaskUI[] = (data.status?.tasks ?? []).map(
+        (t: Record<string, unknown>) => ({
+          id: t.id as string,
+          status: t.status as PutawayTaskUI["status"],
+          sku: (t.sku as string | null) ?? null,
+          qty: (t.qty as number) ?? 0,
+          sourceLocation: (t.sourceLocation as string | null) ?? null,
+          destinationLocation: (t.destinationLocation as string | null) ?? null,
+          completedAt: (t.completedAt as string | null) ?? null,
+        })
+      )
+      setTasks(rows)
+    } catch {
+      setError("Failed to load putaway tasks.")
+    } finally {
+      setLoading(false)
+    }
+  }, [shipment.id, tenantId])
+
+  React.useEffect(() => { loadTasks() }, [loadTasks])
+
+  const generate = async () => {
+    setGenerating(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/inbound/${shipment.id}/putaway`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? "Failed to generate")
+      await loadTasks()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Unknown error")
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const confirmTask = async (taskId: string) => {
+    const dest = destOverrides[taskId] ?? tasks.find(t => t.id === taskId)?.destinationLocation ?? ""
+    if (!dest.trim()) {
+      setConfirmError(prev => ({ ...prev, [taskId]: "Select or enter a destination location." }))
+      return
+    }
+    setConfirming(taskId)
+    setConfirmError(prev => ({ ...prev, [taskId]: "" }))
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/putaway`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId, destinationLocation: dest.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? "Failed to confirm")
+      await loadTasks()
+    } catch (err: unknown) {
+      setConfirmError(prev => ({
+        ...prev,
+        [taskId]: err instanceof Error ? err.message : "Unknown error",
+      }))
+    } finally {
+      setConfirming(null)
+    }
+  }
+
+  const pending = tasks.filter(t => t.status !== "completed").length
+  const done = tasks.filter(t => t.status === "completed").length
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Status bar */}
+      {tasks.length > 0 && (
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 text-xs text-slate-600 dark:text-slate-300">
+          <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+          <span>
+            <span className="font-medium text-slate-900 dark:text-slate-100">{tasks.length}</span> putaway task{tasks.length !== 1 ? "s" : ""}
+            {done > 0 && (
+              <span className="ml-2 text-emerald-600 dark:text-emerald-400 font-medium">{done} completed</span>
+            )}
+            {pending > 0 && (
+              <span className="ml-2 text-amber-600 dark:text-amber-400 font-medium">{pending} remaining</span>
+            )}
+          </span>
+          {done === tasks.length && (
+            <CheckCircle2 className="h-4 w-4 text-emerald-500 ml-auto shrink-0" />
+          )}
+        </div>
+      )}
+
+      {error && (
+        <p className="text-xs text-red-500 flex items-center gap-1">
+          <AlertTriangle className="h-3 w-3 shrink-0" />{error}
+        </p>
+      )}
+
+      {/* No tasks yet */}
+      {tasks.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-14 gap-4">
+          <MoveRight className="h-10 w-10 text-slate-200 dark:text-slate-600" />
+          <div className="text-center">
+            <p className="font-medium text-slate-700 dark:text-slate-200 text-sm">No putaway tasks yet</p>
+            <p className="text-xs text-slate-400 mt-1">
+              Finalize a receiving session first, then generate putaway work.
+            </p>
+          </div>
+          <Button
+            onClick={generate}
+            disabled={generating}
+            className="bg-slate-900 hover:bg-slate-800 text-white"
+          >
+            {generating
+              ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating…</>
+              : <><MoveRight className="mr-2 h-4 w-4" /> Generate Putaway Tasks</>
+            }
+          </Button>
+        </div>
+      )}
+
+      {/* Task list */}
+      {tasks.length > 0 && (
+        <div className="space-y-3">
+          {tasks.map(task => {
+            const isConfirming = confirming === task.id
+            const taskDest = destOverrides[task.id] ?? task.destinationLocation ?? ""
+            const taskErr = confirmError[task.id]
+            const isDone = task.status === "completed"
+
+            return (
+              <div
+                key={task.id}
+                className={`rounded-lg border p-4 space-y-3 ${
+                  isDone
+                    ? "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20"
+                    : "border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800"
+                }`}
+              >
+                {/* Task header */}
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {putawayStatusBadge(task.status)}
+                    {task.sku && (
+                      <span className="font-mono text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded">
+                        {task.sku}
+                      </span>
+                    )}
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      {task.qty} unit{task.qty !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  {isDone && task.completedAt && (
+                    <span className="text-xs text-slate-400">
+                      {new Date(task.completedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  )}
+                </div>
+
+                {/* Location flow */}
+                <div className="flex items-center gap-2 text-xs flex-wrap">
+                  <span className="font-mono bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-1 rounded">
+                    {task.sourceLocation ?? "STAGING"}
+                  </span>
+                  <MoveRight className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                  {isDone ? (
+                    <span className="font-mono bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 px-2 py-1 rounded">
+                      {task.destinationLocation ?? "—"}
+                    </span>
+                  ) : (
+                    /* Destination selector */
+                    <div className="flex-1 min-w-[140px]">
+                      {storageLocations.length > 0 ? (
+                        <select
+                          className="w-full text-xs border border-slate-200 dark:border-slate-600 rounded px-2 py-1 bg-white dark:bg-slate-700 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                          value={taskDest}
+                          onChange={e =>
+                            setDestOverrides(prev => ({ ...prev, [task.id]: e.target.value }))
+                          }
+                        >
+                          <option value="">Select destination…</option>
+                          {task.destinationLocation && (
+                            <option value={task.destinationLocation}>
+                              {task.destinationLocation} (suggested)
+                            </option>
+                          )}
+                          {storageLocations
+                            .filter(l => l !== task.destinationLocation)
+                            .map(l => (
+                              <option key={l} value={l}>{l}</option>
+                            ))}
+                        </select>
+                      ) : (
+                        <input
+                          className="w-full text-xs border border-slate-200 dark:border-slate-600 rounded px-2 py-1 bg-white dark:bg-slate-700 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-slate-400 font-mono"
+                          placeholder={task.destinationLocation ?? "Enter location code…"}
+                          value={taskDest}
+                          onChange={e =>
+                            setDestOverrides(prev => ({ ...prev, [task.id]: e.target.value }))
+                          }
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {taskErr && (
+                  <p className="text-xs text-red-500">{taskErr}</p>
+                )}
+
+                {!isDone && (
+                  <Button
+                    onClick={() => confirmTask(task.id)}
+                    disabled={isConfirming || !taskDest.trim()}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-8"
+                  >
+                    {isConfirming
+                      ? <><Loader2 className="h-3 w-3 animate-spin mr-1.5" /> Confirming…</>
+                      : <><CheckCircle2 className="h-3 w-3 mr-1.5" /> Confirm Putaway</>
+                    }
+                  </Button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Re-generate button (if tasks exist but more scans were added) */}
+      {tasks.length > 0 && (
+        <Button
+          variant="outline"
+          className="w-full text-xs h-8"
+          onClick={generate}
+          disabled={generating}
+        >
+          {generating ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : null}
+          Re-generate from latest session
+        </Button>
+      )}
+    </div>
+  )
+}
+
 function ScanList({ scans }: { scans: ScanRecord[] }) {
   return (
     <div className="space-y-1.5">
@@ -1153,6 +1454,7 @@ export function InboundManagement() {
   const [pallets, setPallets] = React.useState<InboundPallet[]>([])
   const [racks, setRacks] = React.useState<Rack[]>([])
   const [zones, setZones] = React.useState<WarehouseZone[]>([])
+  const [storageLocationCodes, setStorageLocationCodes] = React.useState<string[]>([])
   const [loading, setLoading] = React.useState(true)
   const [palletsLoading, setPalletsLoading] = React.useState(false)
   const [confirming, setConfirming] = React.useState(false)
@@ -1192,6 +1494,28 @@ export function InboundManagement() {
       }
       setRacks(allRacks)
       setLoading(false)
+
+      // Background: load storage location codes for putaway destination picker
+      ;(async () => {
+        try {
+          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+          const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+          if (supabaseUrl && anonKey) {
+            const res = await fetch(
+              `${supabaseUrl}/rest/v1/storage_locations?select=code&tenant_id=eq.${selectedTenant.id}&order=code.asc`,
+              { headers: { apikey: anonKey } }
+            )
+            if (res.ok) {
+              const rows = await res.json()
+              setStorageLocationCodes(
+                Array.isArray(rows) ? rows.map((r: { code: string }) => r.code).filter(Boolean) : []
+              )
+            }
+          }
+        } catch {
+          // non-fatal: destination picker falls back to free-text input
+        }
+      })()
 
       // Background: compute derived counts for all shipments sequentially
       // (non-blocking — table cells update as each completes)
@@ -1566,7 +1890,7 @@ export function InboundManagement() {
 
               {/* Tabs */}
               <div className="flex border-b border-slate-200 dark:border-slate-700 shrink-0 px-2">
-                {(["overview", "pallets", "locations", "receiving"] as const).map(tab => (
+                {(["overview", "pallets", "locations", "receiving", "putaway"] as const).map(tab => (
                   <button
                     key={tab}
                     onClick={() => setDetailTab(tab)}
@@ -1670,6 +1994,15 @@ export function InboundManagement() {
                 {/* Receiving tab */}
                 {detailTab === "receiving" && (
                   <ReceivingTab shipment={selected} tenantId={selectedTenant.id} />
+                )}
+
+                {/* Putaway tab */}
+                {detailTab === "putaway" && (
+                  <PutawayTab
+                    shipment={selected}
+                    tenantId={selectedTenant.id}
+                    storageLocations={storageLocationCodes}
+                  />
                 )}
               </div>
             </div>
