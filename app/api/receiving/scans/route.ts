@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { AuthError, resolveAuth, requireTenantAccess, requireRole, requireString, logAuditEvent } from "@/lib/authz"
 import { createAdminClient } from "@/lib/supabase/server"
-import { recordReceivingScan, postReceivingScanToLedger } from "@/lib/inventory/receivingService"
+import { recordReceivingScan, postReceivingScanToLedger, SkuNotFoundError } from "@/lib/inventory/receivingService"
 
 const RECEIVING_ROLES = ["warehouse_manager", "business_owner", "platform_owner"] as const
 
@@ -23,8 +23,13 @@ export async function POST(request: NextRequest) {
     const sessionId  = requireString(body.sessionId, "sessionId")
     const shipmentId = requireString(body.shipmentId, "shipmentId")
 
-    if (!body.barcode && !body.sku) {
-      return NextResponse.json({ error: "Either 'barcode' or 'sku' is required." }, { status: 400 })
+    const entryMode: "barcode" | "sku" = body.entryMode === "sku" ? "sku" : "barcode"
+
+    if (entryMode === "barcode" && !body.barcode) {
+      return NextResponse.json({ error: "'barcode' is required in barcode mode." }, { status: 400 })
+    }
+    if (entryMode === "sku" && !body.sku) {
+      return NextResponse.json({ error: "'sku' is required in sku mode." }, { status: 400 })
     }
 
     const { appUser, devMode } = await resolveAuth(tenantId)
@@ -53,9 +58,10 @@ export async function POST(request: NextRequest) {
     }
 
     const scanResult = await recordReceivingScan(admin, tenantId, sessionId, shipmentId, {
-      barcode: body.barcode,
-      sku: body.sku,
+      barcode: entryMode === "barcode" ? (body.barcode ?? undefined) : undefined,
+      sku: entryMode === "sku" ? (body.sku ?? undefined) : (body.sku ?? undefined),
       scannedQty: typeof body.scannedQty === "number" ? body.scannedQty : 1,
+      entryMode,
     })
 
     let movementId: string | undefined
@@ -93,6 +99,9 @@ export async function POST(request: NextRequest) {
       postedQty,
     }, { status: 201 })
   } catch (err) {
+    if (err instanceof SkuNotFoundError) {
+      return NextResponse.json({ error: err.message, code: "sku_not_found" }, { status: 422 })
+    }
     if (err instanceof AuthError) return err.toResponse()
     console.error("[api/receiving/scans POST]", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

@@ -713,7 +713,8 @@ type ScanOutcome = "matched" | "unmatched" | "exception" | "posted"
 
 interface ScanRecord {
   scanId: string
-  barcode: string
+  inputValue: string
+  entryMode: "barcode" | "sku"
   sku: string | null
   scannedQty: number
   resolvedBaseQty: number | null
@@ -721,6 +722,14 @@ interface ScanRecord {
   outcome: ScanOutcome
   exceptionCode: string | null
   movementId: string | null
+}
+
+interface LastScanResult {
+  inputValue: string
+  entryMode: "barcode" | "sku"
+  sku: string | null
+  outcome: ScanOutcome | "sku_not_found"
+  exceptionCode: string | null
 }
 
 function outcomeBadge(outcome: ScanOutcome, exCode: string | null) {
@@ -742,11 +751,13 @@ function ReceivingTab({
   const [opening, setOpening] = React.useState(false)
   const [finalizing, setFinalizing] = React.useState(false)
 
-  const [barcode, setBarcode] = React.useState("")
+  const [entryMode, setEntryMode] = React.useState<"barcode" | "sku">("barcode")
+  const [inputValue, setInputValue] = React.useState("")
   const [scannedQty, setScannedQty] = React.useState(1)
   const [scanning, setScanning] = React.useState(false)
   const [scans, setScans] = React.useState<ScanRecord[]>([])
   const [scanError, setScanError] = React.useState<string | null>(null)
+  const [lastResult, setLastResult] = React.useState<LastScanResult | null>(null)
   const [exceptions, setExceptions] = React.useState<ExceptionUI[]>([])
 
   const [summary, setSummary] = React.useState<{
@@ -802,27 +813,41 @@ function ReceivingTab({
 
   const submitScan = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!sessionId || !barcode.trim()) return
+    const trimmed = inputValue.trim()
+    if (!sessionId || !trimmed) return
     setScanning(true)
     setScanError(null)
+    setLastResult(null)
     try {
+      const body: Record<string, unknown> = {
+        tenantId,
+        sessionId,
+        shipmentId: shipment.id,
+        scannedQty,
+        postToLedger: true,
+        entryMode,
+      }
+      if (entryMode === "barcode") body.barcode = trimmed
+      else body.sku = trimmed
+
       const res = await fetch("/api/receiving/scans", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tenantId,
-          sessionId,
-          shipmentId: shipment.id,
-          barcode: barcode.trim(),
-          scannedQty,
-          postToLedger: true,
-        }),
+        body: JSON.stringify(body),
       })
       const data = await res.json()
+
+      // SKU not found — clean validation error, no scan created
+      if (!res.ok && data.code === "sku_not_found") {
+        setLastResult({ inputValue: trimmed, entryMode, sku: null, outcome: "sku_not_found", exceptionCode: null })
+        return
+      }
       if (!res.ok) throw new Error(data.error ?? "Scan failed")
+
       const record: ScanRecord = {
         scanId: data.scanId,
-        barcode: barcode.trim(),
+        inputValue: trimmed,
+        entryMode,
         sku: data.resolvedSku,
         scannedQty,
         resolvedBaseQty: data.resolvedBaseQty,
@@ -832,7 +857,8 @@ function ReceivingTab({
         movementId: data.movementId ?? null,
       }
       setScans(prev => [record, ...prev])
-      setBarcode("")
+      setLastResult({ inputValue: trimmed, entryMode, sku: data.resolvedSku, outcome: data.outcome, exceptionCode: data.exceptionCode })
+      setInputValue("")
       setScannedQty(1)
       if (data.outcome === "exception") await loadExceptions()
     } catch (err: unknown) {
@@ -933,27 +959,96 @@ function ReceivingTab({
         </Button>
       </div>
 
-      {/* Scan input */}
-      <form onSubmit={submitScan} className="flex gap-2">
-        <input
-          className="flex-1 border border-slate-200 dark:border-slate-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400 dark:bg-slate-700 dark:text-slate-100"
-          placeholder="Barcode or scan…"
-          value={barcode}
-          onChange={e => setBarcode(e.target.value)}
-          autoFocus
-        />
-        <input
-          type="number"
-          min={1}
-          className="w-16 border border-slate-200 dark:border-slate-600 rounded-md px-2 py-2 text-sm text-center focus:outline-none focus:ring-1 focus:ring-slate-400 dark:bg-slate-700 dark:text-slate-100"
-          value={scannedQty}
-          onChange={e => setScannedQty(Math.max(1, Number(e.target.value)))}
-          title="Qty"
-        />
-        <Button type="submit" disabled={scanning || !barcode.trim()} className="bg-slate-900 hover:bg-slate-800 text-white px-3">
-          {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-        </Button>
-      </form>
+      {/* Mode toggle + scan input */}
+      <div className="space-y-2">
+        {/* Segmented mode toggle */}
+        <div className="inline-flex rounded-md border border-slate-200 dark:border-slate-600 overflow-hidden text-xs font-medium">
+          <button
+            type="button"
+            onClick={() => { setEntryMode("barcode"); setInputValue(""); setLastResult(null) }}
+            className={`px-3 py-1.5 transition-colors ${
+              entryMode === "barcode"
+                ? "bg-slate-900 text-white dark:bg-slate-200 dark:text-slate-900"
+                : "bg-white text-slate-600 hover:bg-slate-50 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+            }`}
+          >
+            Scan Barcode
+          </button>
+          <button
+            type="button"
+            onClick={() => { setEntryMode("sku"); setInputValue(""); setLastResult(null) }}
+            className={`px-3 py-1.5 border-l border-slate-200 dark:border-slate-600 transition-colors ${
+              entryMode === "sku"
+                ? "bg-slate-900 text-white dark:bg-slate-200 dark:text-slate-900"
+                : "bg-white text-slate-600 hover:bg-slate-50 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+            }`}
+          >
+            Manual SKU
+          </button>
+        </div>
+
+        {/* Input row */}
+        <form onSubmit={submitScan} className="flex gap-2">
+          <input
+            className="flex-1 border border-slate-200 dark:border-slate-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400 dark:bg-slate-700 dark:text-slate-100"
+            placeholder={entryMode === "barcode" ? "Scan barcode…" : "Enter SKU…"}
+            value={inputValue}
+            onChange={e => { setInputValue(e.target.value); setLastResult(null) }}
+            autoFocus
+          />
+          <input
+            type="number"
+            min={1}
+            className="w-16 border border-slate-200 dark:border-slate-600 rounded-md px-2 py-2 text-sm text-center focus:outline-none focus:ring-1 focus:ring-slate-400 dark:bg-slate-700 dark:text-slate-100"
+            value={scannedQty}
+            onChange={e => setScannedQty(Math.max(1, Number(e.target.value)))}
+            title="Qty"
+          />
+          <Button type="submit" disabled={scanning || !inputValue.trim()} className="bg-slate-900 hover:bg-slate-800 text-white px-3">
+            {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          </Button>
+        </form>
+
+        {/* Inline result feedback */}
+        {lastResult && !scanError && (() => {
+          const { outcome, exceptionCode, sku, entryMode: mode } = lastResult
+          if (outcome === "sku_not_found") {
+            return (
+              <p className="text-xs text-red-500 flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3 shrink-0" />
+                SKU not found
+              </p>
+            )
+          }
+          if (outcome === "exception" && exceptionCode === "unknown_barcode") {
+            return (
+              <div className="text-xs text-amber-600 dark:text-amber-400 space-y-0.5">
+                <p className="font-medium">Unknown barcode</p>
+                <p className="text-slate-500 dark:text-slate-400">Save and map this barcode to a product in the Exceptions panel below</p>
+              </div>
+            )
+          }
+          if (outcome === "posted" || outcome === "matched") {
+            return (
+              <div className="text-xs text-emerald-600 dark:text-emerald-400 space-y-0.5">
+                {sku && <p className="font-medium font-mono">{sku}</p>}
+                <p className="text-slate-500 dark:text-slate-400">
+                  {mode === "barcode" ? `Barcode matched · each · qty ${lastResult.inputValue ? scannedQty : 1}` : `Manual SKU match · ${sku}`}
+                </p>
+              </div>
+            )
+          }
+          if (outcome === "exception") {
+            return (
+              <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3 shrink-0" />
+                {exceptionCode?.replace(/_/g, " ") ?? "Exception raised"} — see panel below
+              </p>
+            )
+          }
+          return null
+        })()}
+      </div>
 
       {scanError && (
         <p className="text-xs text-red-500 flex items-center gap-1">
@@ -963,7 +1058,9 @@ function ReceivingTab({
 
       {/* Scan results */}
       {scans.length === 0 ? (
-        <p className="text-xs text-slate-400 italic text-center py-6">No scans yet — scan a barcode above</p>
+        <p className="text-xs text-slate-400 italic text-center py-6">
+          {entryMode === "barcode" ? "No scans yet — scan a barcode above" : "No scans yet — enter a SKU above"}
+        </p>
       ) : (
         <ScanList scans={scans} />
       )}
@@ -993,7 +1090,10 @@ function ScanList({ scans }: { scans: ScanRecord[] }) {
         >
           <div className="space-y-0.5">
             <div className="flex items-center gap-2">
-              <span className="font-mono text-slate-600">{scan.barcode}</span>
+              <span className="font-mono text-slate-600">{scan.inputValue}</span>
+              {scan.entryMode === "sku" && (
+                <span className="text-[10px] px-1 py-0.5 rounded bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400">SKU</span>
+              )}
               {outcomeBadge(scan.outcome, scan.exceptionCode)}
             </div>
             <div className="flex items-center gap-3 text-slate-500">

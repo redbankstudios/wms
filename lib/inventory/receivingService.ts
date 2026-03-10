@@ -127,6 +127,24 @@ async function _expectedBySku(
   return totals
 }
 
+// ── SkuNotFoundError ──────────────────────────────────────────────────────────
+
+/**
+ * Thrown by recordReceivingScan when entryMode = "sku" and the supplied SKU
+ * does not match any inventory_items row for the tenant.
+ *
+ * This is a validation error, not an exception-worthy event — no scan row is
+ * created and no barcode-learning exception is raised.
+ */
+export class SkuNotFoundError extends Error {
+  readonly sku: string
+  constructor(sku: string) {
+    super(`SKU '${sku}' not found in inventory for this tenant`)
+    this.name = "SkuNotFoundError"
+    this.sku = sku
+  }
+}
+
 // ── Service functions ─────────────────────────────────────────────────────────
 
 /**
@@ -184,7 +202,19 @@ export async function recordReceivingScan(
   tenantId: string,
   sessionId: string,
   shipmentId: string,
-  input: { barcode?: string; sku?: string; scannedQty?: number }
+  input: {
+    barcode?: string
+    sku?: string
+    scannedQty?: number
+    /**
+     * "barcode" (default): input is treated as a barcode string. Unknown barcodes
+     *   produce an unknown_barcode exception so they can be learned later.
+     * "sku": input is resolved directly against inventory_items.sku. A missing SKU
+     *   throws SkuNotFoundError (no scan row created, no exception raised). This
+     *   is an operator fallback path, not a barcode-learning event.
+     */
+    entryMode?: "barcode" | "sku"
+  }
 ): Promise<{
   scanId: string
   outcome: ScanOutcome
@@ -228,6 +258,13 @@ export async function recordReceivingScan(
       .eq("tenant_id", tenantId)
       .eq("sku", sku)
       .maybeSingle()
+
+    // Manual SKU mode: a missing inventory item is a user validation error.
+    // Do NOT create a scan row and do NOT raise an unknown_barcode exception —
+    // this is an operator fallback path, not a barcode-learning event.
+    if (input.entryMode === "sku" && !item) {
+      throw new SkuNotFoundError(sku)
+    }
 
     inventoryItemId = item?.id ?? null
     resolvedBaseQty = scannedQty
